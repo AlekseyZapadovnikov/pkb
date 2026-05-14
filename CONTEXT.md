@@ -108,47 +108,30 @@ AI/mock classifier классифицирует сообщение
 
 ```text
 id
-source
-text
-status
-error
-raw_payload
+source_type
+raw_text
 created_at
-updated_at
 ```
 
-`source` на первом этапе:
+`source_type` на первом этапе:
 
 ```text
-web
+web_ui
 ```
 
 Возможные будущие значения:
 
 ```text
 telegram
-cli
 api
-```
-
-`status`:
-
-```text
-received
-queued
-processing
-processed
-unknown
-failed
 ```
 
 Смысл таблицы:
 
 - сохранить оригинал сообщения;
 - не потерять данные при сбое;
-- понимать, что уже обработано;
-- иметь возможность переобработать сообщение позже;
-- дебажить работу классификатора.
+- связать исходное сообщение с processing job;
+- иметь возможность дебажить работу классификатора.
 
 ### `processing_jobs`
 
@@ -168,12 +151,9 @@ job_type
 source_message_id
 status
 attempts
-max_attempts
-available_at
+error
 started_at
 finished_at
-error
-payload
 created_at
 updated_at
 ```
@@ -185,8 +165,6 @@ pending
 running
 done
 failed
-retry
-dead
 ```
 
 Смысл таблицы:
@@ -205,17 +183,18 @@ dead
 ```text
 id
 source_message_id
-type
+category
 title
 body
-summary
 confidence
-metadata
+data_json
 created_at
 updated_at
 ```
 
-`type` на старте:
+`category` — пользовательская категория знания. Это свободная строка, не enum.
+
+Примеры категорий:
 
 ```text
 about_user
@@ -233,7 +212,7 @@ code_snippet
 raw_note
 ```
 
-`metadata` хранится как JSON-строка, потому что разные типы знаний могут иметь разные дополнительные поля.
+`data_json` хранит дополнительные структурированные данные в JSON, если они есть.
 
 ### `unknown_items`
 
@@ -244,29 +223,17 @@ raw_note
 ```text
 id
 source_message_id
-text
 reason
 confidence
-suggested_type
-suggested_topics
-status
+raw_output_json
 created_at
-resolved_at
-```
-
-`status`:
-
-```text
-open
-resolved
-ignored
 ```
 
 Сообщение должно попасть в `unknown`, если:
 
 - confidence ниже threshold;
 - classifier вернул невалидный JSON;
-- type неизвестен;
+- category пустая или неподходящая;
 - title пустой;
 - body пустой;
 - сообщение слишком неоднозначное;
@@ -313,7 +280,7 @@ topic_id
 
 ## Тип `about_user`
 
-`about_user` — это обычный `knowledge_item`, но с особым смыслом.
+`about_user` — это обычная category у `knowledge_item`, но с особым смыслом.
 
 Туда попадают устойчивые знания о пользователе:
 
@@ -326,7 +293,7 @@ topic_id
 - стиль работы;
 - навыки.
 
-Для `about_user` использовать `metadata`:
+Для `about_user` использовать `data_json`:
 
 ```json
 {
@@ -354,16 +321,15 @@ skill
 
 ```json
 {
-  "type": "article",
+  "kind": "knowledge",
+  "category": "article",
   "title": "Почитать про embeddings для локальной базы знаний",
   "body": "Пользователь хочет изучить embeddings в контексте локальной personal knowledge base.",
-  "summary": "Материал для чтения про embeddings.",
-  "topics": ["ai", "embeddings", "personal-kb"],
   "confidence": 0.87,
-  "metadata": {
+  "data_json": {
     "status": "to_read"
   },
-  "reason_if_unknown": ""
+  "reason": ""
 }
 ```
 
@@ -371,14 +337,13 @@ skill
 
 ```json
 {
-  "type": "unknown",
+  "kind": "unknown",
+  "category": "",
   "title": "",
   "body": "посмотреть это потом",
-  "summary": "",
-  "topics": ["unknown"],
   "confidence": 0.25,
-  "metadata": {},
-  "reason_if_unknown": "Неясно, что именно нужно посмотреть."
+  "data_json": {},
+  "reason": "Неясно, что именно нужно посмотреть."
 }
 ```
 
@@ -423,15 +388,13 @@ classification_confidence_threshold = 0.75
 На странице source messages:
 
 - raw text;
-- source;
-- status;
+- source_type;
 - created_at;
-- error, если есть.
 
 На странице knowledge items:
 
 - список сохранённых знаний;
-- фильтр по type;
+- фильтр по category;
 - фильтр по topic;
 - ссылка на detail page.
 
@@ -440,7 +403,7 @@ classification_confidence_threshold = 0.75
 - список unknown items;
 - причина попадания в unknown;
 - confidence;
-- suggested type/topics.
+- raw output классификатора, если он есть.
 
 Пока не делаем сложное редактирование. На первом этапе достаточно просмотра.
 
@@ -459,4 +422,3 @@ Vector index = будущий индекс для semantic search.
 Если SQLite удалили — данные потеряны.
 
 Поэтому SQLite — source of truth.
-

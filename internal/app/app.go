@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,14 +12,16 @@ import (
 	"time"
 
 	"pkb/internal/config"
+	storage "pkb/internal/db"
 	"pkb/internal/web"
 )
 
 // App объединяет конфигурацию, логгер и HTTP-сервер приложения.
 type App struct {
-	cfg    config.Config
-	logger *slog.Logger
-	server *http.Server
+	cfg      config.Config
+	logger   *slog.Logger
+	server   *http.Server
+	database *sql.DB
 }
 
 // New подготавливает директории приложения и собирает HTTP-сервер.
@@ -34,14 +37,32 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("ensure sqlite dir: %w", err)
 	}
 
+	setupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	database, err := storage.Open(setupCtx, cfg.SQLitePath)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite database: %w", err)
+	}
+	if err := storage.Migrate(setupCtx, database); err != nil {
+		if closeErr := database.Close(); closeErr != nil {
+			logger.Warn("close sqlite database after migration error", "error", closeErr)
+		}
+		return nil, fmt.Errorf("migrate sqlite database: %w", err)
+	}
+
 	webServer, err := web.NewServer(web.ServerConfig{}, logger, nil)
 	if err != nil {
+		if closeErr := database.Close(); closeErr != nil {
+			logger.Warn("close sqlite database after web server error", "error", closeErr)
+		}
 		return nil, fmt.Errorf("create web server: %w", err)
 	}
 
 	return &App{
-		cfg:    cfg,
-		logger: logger,
+		cfg:      cfg,
+		logger:   logger,
+		database: database,
 		server: &http.Server{
 			Addr:              cfg.Addr,
 			Handler:           webServer.Routes(),
@@ -52,6 +73,15 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 
 // Run запускает HTTP-сервер и корректно останавливает его при отмене контекста.
 func (a *App) Run(ctx context.Context) error {
+	defer func() {
+		if a.database == nil {
+			return
+		}
+		if err := a.database.Close(); err != nil {
+			a.logger.Warn("close sqlite database", "error", err)
+		}
+	}()
+
 	errCh := make(chan error, 1)
 
 	go func() {
