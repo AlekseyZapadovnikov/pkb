@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Personal KB</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/healthz">Health</a>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section class="input-surface" aria-labelledby="page-title">
+      <div class="section-head">
+        <p class="eyebrow">Local memory core</p>
+        <h1 id="page-title">Personal KB</h1>
+      </div>
+
+      <form class="message-form">
+        <textarea name="text" placeholder="Write a note, task, link, or thought..." disabled></textarea>
+        <div class="form-row">
+          <button type="button" disabled>Submit</button>
+          <span class="muted">Input pipeline arrives in stage 3.</span>
+        </div>
+      </form>
+    </section>
+
+    <section class="status-grid" aria-label="Application status">
+      <div class="status-item">
+        <span>Server</span>
+        <strong>running</strong>
+      </div>
+      <div class="status-item">
+        <span>Started</span>
+        <strong>{{.StartedAt}}</strong>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
