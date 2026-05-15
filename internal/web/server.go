@@ -8,10 +8,11 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"pkb/internal/usecase/domain"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"pkb/internal/usecase/domain"
 )
 
 //go:embed templates/*.html static/*
@@ -22,7 +23,7 @@ type ServerConfig struct{}
 
 // MessageSubmitter описывает use case, который принимает исходное сообщение из HTTP-слоя.
 type MessageSubmitter interface {
-	ProcessMessage(context.Context, *domain.SourceMessage) (jobID int64, err error) 
+	ProcessMessage(context.Context, *domain.SourceMessage) (jobID int64, err error)
 }
 
 // Server хранит зависимости HTTP-слоя: шаблоны, статические файлы, логгер, use case и состояние запуска.
@@ -70,6 +71,7 @@ func NewServer(_ ServerConfig, logger *slog.Logger, messages MessageSubmitter) (
 func (s *Server) Routes() http.Handler {
 	router := chi.NewRouter()
 	router.Get("/", s.handleHome)
+	router.Post("/message", s.handleTextMessage)
 	router.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(s.staticFS))))
 	return router
 }
