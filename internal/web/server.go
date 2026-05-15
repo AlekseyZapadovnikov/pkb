@@ -8,12 +8,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"pkb/internal/usecase/domain"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-
-	"pkb/internal/usecase"
-	"pkb/internal/usecase/domain"
 )
 
 //go:embed templates/*.html static/*
@@ -24,7 +22,7 @@ type ServerConfig struct{}
 
 // MessageSubmitter описывает use case, который принимает исходное сообщение из HTTP-слоя.
 type MessageSubmitter interface {
-	SubmitMessage(ctx context.Context, input usecase.SubmitMessageInput) (domain.SourceMessage, error)
+	ProcessMessage(context.Context, *domain.SourceMessage) (jobID int64, err error) 
 }
 
 // Server хранит зависимости HTTP-слоя: шаблоны, статические файлы, логгер, use case и состояние запуска.
@@ -72,7 +70,6 @@ func NewServer(_ ServerConfig, logger *slog.Logger, messages MessageSubmitter) (
 func (s *Server) Routes() http.Handler {
 	router := chi.NewRouter()
 	router.Get("/", s.handleHome)
-	router.Get("/healthz", s.handleHealthz)
 	router.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(s.staticFS))))
 	return router
 }
@@ -90,10 +87,35 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleHealthz отдаёт простую проверку состояния сервера.
-func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if _, err := w.Write([]byte("{\"status\":\"ok\"}\n")); err != nil {
-		s.logger.Warn("write health response", "error", err)
+// POST ./message
+
+func (s *Server) handleTextMessage(w http.ResponseWriter, r *http.Request) {
+
+	if err := r.ParseForm(); err != nil {
+		s.logger.Error("parse form", "error", err)
+		http.Error(w, "invalid form data", http.StatusBadRequest)
+		return
 	}
+	RawMessage := r.FormValue("raw_text")
+
+	if RawMessage == "" {
+		http.Error(w, "raw_text is required", http.StatusBadRequest)
+		return
+	}
+
+	input := domain.SourceMessage{
+		SourceType: domain.SourceTypeWebUI,
+		RawText:    RawMessage,
+		CreatedAt:  time.Now(),
+	}
+
+	jobID, err := s.messages.ProcessMessage(r.Context(), &input)
+	if err != nil {
+		s.logger.Error("process message", "error", err)
+		http.Error(w, "failed to process message", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	w.Write([]byte(fmt.Sprintf("jobID: %d", jobID)))
 }

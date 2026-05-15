@@ -2,21 +2,21 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
+	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 )
 
 const driverName = "sqlite"
 
-// Open открывает SQLite через database/sql и применяет настройки для локального storage.
-func Open(ctx context.Context, path string) (*sql.DB, error) {
+// Open открывает SQLite через sqlx и применяет настройки для локального storage.
+func Open(ctx context.Context, path string) (*sqlx.DB, error) {
 	if path == "" {
 		return nil, fmt.Errorf("sqlite path is empty")
 	}
 
-	database, err := sql.Open(driverName, path)
+	database, err := sqlx.Open(driverName, path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
@@ -36,7 +36,7 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 	return database, nil
 }
 
-func configure(ctx context.Context, database *sql.DB) error {
+func configure(ctx context.Context, database *sqlx.DB) error {
 	pragmas := []string{
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA journal_mode = WAL",

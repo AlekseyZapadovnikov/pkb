@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 
 	"pkb/internal/config"
 	storage "pkb/internal/db"
@@ -21,7 +22,7 @@ type App struct {
 	cfg      config.Config
 	logger   *slog.Logger
 	server   *http.Server
-	database *sql.DB
+	database *sqlx.DB
 }
 
 // New подготавливает директории приложения и собирает HTTP-сервер.

@@ -2,11 +2,11 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"embed"
 	"fmt"
 	"sync"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose/v3"
 )
 
@@ -16,7 +16,7 @@ var migrationsFS embed.FS
 var migrateMu sync.Mutex
 
 // Migrate применяет встроенные SQL-миграции к SQLite database.
-func Migrate(ctx context.Context, database *sql.DB) error {
+func Migrate(ctx context.Context, database *sqlx.DB) error {
 	if database == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -33,7 +33,7 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 		return fmt.Errorf("set goose dialect: %w", err)
 	}
 
-	if err := goose.UpContext(ctx, database, "migrations"); err != nil {
+	if err := goose.UpContext(ctx, database.DB, "migrations"); err != nil {
 		return fmt.Errorf("apply sqlite migrations: %w", err)
 	}
 
