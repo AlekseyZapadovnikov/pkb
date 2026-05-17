@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	"pkb/internal/app"
-	"pkb/internal/config"
+	"pkb/internal/usecase/service/config"
 )
 
 // main загружает конфигурацию, собирает приложение и запускает HTTP-сервер.

@@ -21,13 +21,6 @@ const (
 
 type JobStatus string
 
-const (
-	JobStatusPending JobStatus = "pending"
-	JobStatusRunning JobStatus = "running"
-	JobStatusDone    JobStatus = "done"
-	JobStatusFailed  JobStatus = "failed"
-)
-
 type ClassificationKind string
 
 const (
@@ -49,14 +42,21 @@ type SourceMessage struct {
 	// Когда сообщение было создано в системе.
 }
 
-type ProcessingJob struct {
+const (
+	JobStatusPending JobStatus = "pending"
+	JobStatusRunning JobStatus = "running"
+	JobStatusDone    JobStatus = "done"
+	JobStatusFailed  JobStatus = "failed"
+)
+
+type Job struct {
 	ID int64
 	// Внутренний ID задачи обработки.
 
 	JobType JobType
 	// Тип задачи.
 
-	SourceMessageID *int64
+	SourceMessage *SourceMessage
 	// ID исходного сообщения, которое нужно обработать.
 
 	Status JobStatus
@@ -84,6 +84,20 @@ type ProcessingJob struct {
 	// Когда задача последний раз обновлялась.
 }
 
+type Topic struct {
+	ID int64
+	// Внутренний ID топика.
+
+	Slug string
+	// Стабильный машинный идентификатор топика.
+
+	Name string
+	// Человекочитаемое название топика.
+
+	Description string
+	// Описание границ топика для пользователя и классификатора.
+}
+
 type KnowledgeItem struct {
 	ID int64
 	// Внутренний ID структурированной записи знания.
@@ -91,15 +105,15 @@ type KnowledgeItem struct {
 	SourceMessageID int64
 	// ID исходного сообщения, из которого была создана эта запись.
 
-	Category string
-	// Пользовательская категория знания.
-
 	Title string
 	// Короткий заголовок записи.
 
 	Body string
 	// Нормализованное описание.
 	// Это уже обработанный текст, не raw input.
+
+	Topics []*Topic
+	// Топики, к которым относится запись.
 
 	Confidence float64
 	// Уверенность классификатора от 0.0 до 1.0.
@@ -127,17 +141,14 @@ type ClassificationResult struct {
 	// Общий результат классификации:
 	// knowledge или unknown.
 
-	Category string
-	// Пользовательская категория будущего KnowledgeItem.
-	//
-	// Используется только если Kind == knowledge.
-	// Это свободная строка, не enum.
-
 	Title string
 	// Заголовок будущего KnowledgeItem.
 
 	Body string
 	// Нормализованное описание будущего KnowledgeItem.
+
+	TopicSlugs []string
+	// Slug-и топиков, выбранных классификатором.
 
 	Confidence float64
 	// Уверенность классификатора от 0.0 до 1.0.

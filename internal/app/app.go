@@ -12,8 +12,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"pkb/internal/config"
 	storage "pkb/internal/db"
+	"pkb/internal/usecase/service/config"
 	"pkb/internal/web"
 )
 

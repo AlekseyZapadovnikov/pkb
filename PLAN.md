@@ -1,262 +1,214 @@
-# План разработки
+# План MVP для классификации по топикам
 
-Цель плана — постепенно собрать MVP локальной базы знаний без преждевременного усложнения архитектуры.
+## Архитектурное решение
 
-Основной фокус первой версии:
+1. SQLite — источник истины.
+2. Markdown на этом этапе не участвует в хранении данных.
+   - Prompt-файлы лежат отдельно.
+   - Markdown export можно добавить позже как производное представление.
+3. AI не пишет напрямую ни в SQLite, ни в Markdown.
+4. AI возвращает только строгий JSON.
+5. MCP, agents framework, embeddings и vector search сейчас не добавляем.
+6. `Category` убираем.
+7. `Topic` добавляем как отдельную доменную сущность.
+8. `KnowledgeItem` связывается с `Topic` через many-to-many.
+9. `unknown_items` в этом MVP не используем.
+10. `unknown` реализуем как обычный технический topic со slug `unknown`.
 
-```text
-web input -> SQLite -> processing job -> classifier -> knowledge/unknown
+Важное правило: topic `unknown` не должен участвовать в обычных ответах базы знаний и обычном поиске по умолчанию. Это техническая зона для сообщений, которые нужно потом разобрать вручную или повторно классифицировать.
+
+Обычные search/answer запросы должны исключать:
+
+```sql
+topic.slug = 'unknown'
 ```
 
-## Допущения
+Если пользователь явно хочет посмотреть неразобранные сообщения, тогда запрашиваем `unknown` напрямую.
 
-- Приложение пишется на Go.
-- Приложение запускается локально.
-- SQLite используется как единственный обязательный storage.
-- На первом этапе используется mock classifier.
-- Реальный LLM provider подключается после того, как весь pipeline уже работает.
-- Telegram, Obsidian, vector search и агенты откладываются до MVP.
+## Изменения доменной модели
 
-## Этап 1. Skeleton приложения
+В `internal/usecase/domain/models.go`:
 
-Сделать минимальное Go web-приложение.
+- добавить `Topic`;
+- убрать `Category` из `KnowledgeItem`;
+- добавить `Topics []*Topic` в `KnowledgeItem`;
+- убрать `Category` из `ClassificationResult`;
+- добавить `TopicSlugs []string` в `ClassificationResult`;
+- оставить `Kind` со значениями `knowledge` и `unknown`.
 
-Нужно:
+Минимальная модель topic:
 
-- запуск локального HTTP-сервера;
-- простая главная страница;
-- health endpoint;
-- конфиг приложения;
-- директория для SQLite-файла.
-
-Результат:
-
-```text
-приложение запускается локально и открывается в браузере.
+```go
+type Topic struct {
+	ID          int64
+	Slug        string
+	Name        string
+	Description string
+}
 ```
 
-## Этап 2. SQLite и миграции
+`KnowledgeItem` должен хранить нормализованный контент и уже найденные топики:
 
-Подключить SQLite как основной storage.
+```go
+type KnowledgeItem struct {
+	ID              int64
+	SourceMessageID int64
 
-Создать таблицы:
+	Title string
+	Body  string
 
-- `source_messages`;
-- `processing_jobs`;
-- `knowledge_items`;
-- `unknown_items`;
-- `topics`;
-- `knowledge_item_topics`.
+	Topics []*Topic
 
-Результат:
+	Confidence float64
+	DataJSON   json.RawMessage
 
-```text
-приложение умеет создавать и использовать локальный SQLite-файл.
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
 ```
 
-## Этап 3. Raw text ingest
+`ClassificationResult` должен оставаться черновиком от AI, а не полноценной сохранённой сущностью:
 
-Сделать форму ввода текста.
+```go
+type ClassificationResult struct {
+	Kind ClassificationKind
 
-При submit:
+	Title string
+	Body  string
 
-- сохранить текст в `source_messages`;
-- поставить `source_messages.status = received`;
-- создать `processing_jobs` запись с `job_type = classify_message`;
-- поставить `processing_jobs.status = pending`.
+	TopicSlugs []string
 
-Результат:
+	Confidence float64
+	DataJSON   json.RawMessage
 
-```text
-пользователь может ввести текст, и оно сохраняется как raw message.
+	Reason        string
+	RawOutputJSON json.RawMessage
+}
 ```
 
-## Этап 4. Source messages list
+## Изменения SQLite
 
-Добавить страницу просмотра входящих сообщений.
+Если текущая база содержит только одноразовые dev-данные, можно обновить `00001_init.sql`.
 
-Показывать:
+Если существующие данные нужно сохранить, нужно добавить новую миграцию `00002`.
 
-- text;
-- source;
-- status;
-- created_at;
-- error.
+Изменения схемы:
 
-Результат:
+- убрать `category` из `knowledge_items`;
+- добавить `description` в `topics`;
+- оставить `slug`;
+- оставить `knowledge_item_topics`;
+- убрать `unknown_items` из MVP-схемы или оставить неиспользуемой, если миграционный шум пока не нужен;
+- оставить уникальность для `topics.slug`;
+- добавить индексы для `topics.slug` и `knowledge_item_topics.topic_id`.
 
-```text
-можно видеть, какие сообщения попали в систему и в каком они статусе.
-```
+## Дефолтный topic unknown
 
-## Этап 5. Worker обработки jobs
-
-Сделать простой worker внутри приложения.
-
-Worker должен:
-
-- искать pending jobs;
-- брать одну job в обработку;
-- менять job status на `running`;
-- менять source message status на `processing`;
-- запускать обработчик;
-- завершать job как `done`, `retry`, `failed` или `dead`.
-
-На этом этапе можно использовать mock classifier.
-
-Результат:
+При старте приложения нужно гарантировать, что технический topic существует:
 
 ```text
-processing_jobs реально выполняются.
+slug = "unknown"
+name = "unknown"
+description = "Messages that could not be confidently assigned to existing topics."
 ```
 
-## Этап 6. Mock AI classifier
+Это нужно делать в startup-коде, а не только в миграции, чтобы приложение могло восстановить обязательный технический topic при необходимости.
 
-Перед реальным LLM сделать mock classifier.
+## Изменения репозиториев
 
-Пример начальных правил:
+Добавить минимальное поведение для topic repository:
+
+```go
+type TopicRepository interface {
+	EnsureUnknownTopic(ctx context.Context) (*domain.Topic, error)
+	ListTopics(ctx context.Context) ([]*domain.Topic, error)
+	FindTopicsBySlugs(ctx context.Context, slugs []string) ([]*domain.Topic, error)
+}
+```
+
+Добавить минимальное поведение для knowledge repository:
+
+```go
+type KnowledgeRepository interface {
+	SaveKnowledgeItem(ctx context.Context, item *domain.KnowledgeItem) error
+	SaveKnowledgeItemTopics(ctx context.Context, itemID int64, topics []*domain.Topic) error
+}
+```
+
+Позже эти методы можно объединить в один транзакционный save-метод, если так лучше ляжет на реализацию.
+
+## Интерфейс классификатора
+
+Текущий service type с именем `Classifier` уже отвечает за очередь и worker. LLM/mock classifier лучше назвать иначе, например:
+
+```go
+type MessageClassifier interface {
+	Classify(ctx context.Context, msg *domain.SourceMessage, topics []*domain.Topic) (*domain.ClassificationResult, error)
+}
+```
+
+## Worker flow
+
+Поток обработки:
 
 ```text
-если текст содержит "почитать" -> article
-если текст содержит "фильм" -> movie
-если текст содержит "надо" -> task
-иначе -> unknown
+SourceMessage
+-> Job
+-> загрузить topics кроме unknown
+-> MessageClassifier
+-> ClassificationResult
+-> валидация
+-> resolve topics
+-> сохранить KnowledgeItem
+-> сохранить knowledge_item_topics
+-> пометить Job как done
 ```
 
-Mock classifier должен возвращать тот же структурированный результат, что и будущий AI classifier.
+Правила:
 
-Результат:
+- если `kind == knowledge`, confidence достаточно высокий и все slugs существуют: сохраняем с найденными topics;
+- если `kind == unknown`: сохраняем с topic `unknown`;
+- если confidence ниже threshold: сохраняем с topic `unknown`;
+- если AI вернула неизвестные topic slugs: для MVP заменяем весь набор topics на `unknown`;
+- AI никогда не создаёт topics напрямую.
 
-```text
-можно проверить весь pipeline без реального AI.
+## Search и answer behavior
+
+Обычный поиск по базе знаний и обычные answer-запросы должны исключать технический topic:
+
+```sql
+WHERE topics.slug != 'unknown'
 ```
 
-## Этап 7. Knowledge items flow
+Режим ручного разбора unknown должен явно включать только:
 
-После уверенной классификации:
-
-- создать `knowledge_item`;
-- создать или найти topics;
-- связать item с topics через `knowledge_item_topics`;
-- обновить `source_messages.status = processed`;
-- обновить `processing_jobs.status = done`.
-
-Результат:
-
-```text
-raw message превращается в structured knowledge item.
+```sql
+WHERE topics.slug = 'unknown'
 ```
 
-## Этап 8. Unknown flow
+## Проверка после реализации
 
-Если классификатор не уверен или результат невалидный:
+Запустить:
 
-- создать `unknown_item`;
-- сохранить причину;
-- сохранить confidence;
-- сохранить suggested type/topics;
-- обновить `source_messages.status = unknown`;
-- обновить `processing_jobs.status = done`, если технической ошибки не было.
-
-Результат:
-
-```text
-сомнительные сообщения не теряются и попадают в unknown.
+```sh
+gofmt -w <changed-go-files>
+go test ./...
+go vet ./...
 ```
 
-## Этап 9. Knowledge и unknown pages
+Ручные сценарии для проверки:
 
-Добавить страницы просмотра:
+- классификация в известный topic;
+- `kind == unknown`;
+- классификация с низким confidence;
+- AI вернула неизвестный topic slug;
+- обычный поиск исключает `unknown`;
+- явный режим просмотра unknown включает `unknown`.
 
-- всех knowledge items;
-- knowledge item details;
-- всех unknown items;
-- unknown item details.
+## Риски
 
-Результат:
+Главный риск — стратегия миграций.
 
-```text
-пользователь видит, что система сохранила и что не смогла разобрать.
-```
+Если локальная SQLite база содержит только одноразовые dev-данные, проще обновить `00001_init.sql`.
 
-## Этап 10. Реальный AI classifier
-
-Заменить mock classifier на реальный LLM provider через общий интерфейс.
-
-Важно:
-
-- общий интерфейс classifier должен остаться;
-- mock classifier не удалять;
-- реальный classifier должен возвращать JSON;
-- backend должен валидировать JSON;
-- при невалидном результате сохранять `unknown_item`;
-- при технической ошибке переводить job в retry/failed.
-
-Результат:
-
-```text
-система реально классифицирует сообщения через AI.
-```
-
-## Этап 11. Confidence threshold
-
-Добавить настройку:
-
-```text
-classification_confidence_threshold
-```
-
-Использовать её при обработке результата classifier.
-
-Результат:
-
-```text
-можно управлять строгостью классификации.
-```
-
-## Этап 12. Простая фильтрация и поиск
-
-В web UI добавить:
-
-- фильтр knowledge items по type;
-- фильтр по topic;
-- простой текстовый поиск по title/body/summary.
-
-Результат:
-
-```text
-базой уже можно пользоваться.
-```
-
-## Definition of Done для MVP
-
-MVP готов, когда:
-
-- приложение запускается локально;
-- пользователь может открыть web UI;
-- пользователь может ввести текст;
-- текст сохраняется в `source_messages`;
-- создаётся processing job;
-- worker обрабатывает job;
-- mock или AI classifier классифицирует текст;
-- уверенный результат попадает в `knowledge_items`;
-- неуверенный результат попадает в `unknown_items`;
-- можно посмотреть source messages;
-- можно посмотреть knowledge items;
-- можно посмотреть unknown items;
-- все важные данные лежат в SQLite.
-
-## После MVP
-
-После рабочего pipeline добавлять по очереди:
-
-- Markdown export;
-- Telegram input;
-- unknown manual resolve;
-- full-text search;
-- embeddings;
-- semantic search;
-- attachments;
-- digest/reflection agent;
-- specialized agents.
-
+Если данные нужно сохранить, нужно добавить `00002` и мигрировать аккуратно.
