@@ -30,6 +30,27 @@
       </form>
     </section>
 
+    <section class="input-surface" aria-labelledby="topics-title">
+      <div class="section-head">
+        <p class="eyebrow">Topics</p>
+        <h2 id="topics-title">Create topic</h2>
+      </div>
+
+      <form class="topic-form" action="/topics" method="post">
+        <label>
+          <span>Topic name</span>
+          <input name="name" type="text" required>
+        </label>
+        <label>
+          <span>Description</span>
+          <textarea class="compact-textarea" name="description"></textarea>
+        </label>
+        <div class="form-row">
+          <button type="submit">Create topic</button>
+        </div>
+      </form>
+    </section>
+
     <section class="status-grid" aria-label="Application status">
       <div class="status-item">
         <span>Server</span>

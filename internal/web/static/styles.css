@@ -58,6 +58,10 @@ a {
   padding: 28px;
 }
 
+.input-surface + .input-surface {
+  margin-top: 16px;
+}
+
 .section-head {
   margin-bottom: 24px;
 }
@@ -76,15 +80,31 @@ h1 {
   line-height: 1.15;
 }
 
-.message-form {
+h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.message-form,
+.topic-form {
   display: grid;
   gap: 14px;
 }
 
+label {
+  display: grid;
+  gap: 8px;
+}
+
+label span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+input,
 textarea {
   width: 100%;
-  min-height: 180px;
-  resize: vertical;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px 16px;
@@ -94,9 +114,19 @@ textarea {
   line-height: 1.5;
 }
 
+input:focus,
 textarea:focus {
   outline: 3px solid rgba(183, 95, 58, 0.24);
   border-color: var(--focus);
+}
+
+textarea {
+  min-height: 180px;
+  resize: vertical;
+}
+
+.compact-textarea {
+  min-height: 96px;
 }
 
 textarea:disabled {
@@ -177,4 +207,3 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
-

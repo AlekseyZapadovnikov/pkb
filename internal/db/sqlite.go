@@ -39,7 +39,7 @@ func Open(ctx context.Context, path string) (*sqlx.DB, error) {
 func configure(ctx context.Context, database *sqlx.DB) error {
 	pragmas := []string{
 		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
+		"PRAGMA journal_mode = WAL", // думаю над тем, чтобы убрать это, тк database.SetMaxOpenConns(1), но надо лезть и читать, что это такое, так что пока что очтавлю
 		"PRAGMA busy_timeout = 5000",
 	}
 

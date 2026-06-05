@@ -13,6 +13,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	storage "pkb/internal/db"
+	"pkb/internal/usecase/service"
 	"pkb/internal/usecase/service/config"
 	"pkb/internal/web"
 )
@@ -52,7 +53,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("migrate sqlite database: %w", err)
 	}
 
-	webServer, err := web.NewServer(web.ServerConfig{}, logger, nil)
+	repository := storage.NewRepository(database)
+	topics := service.NewTopicManager(repository)
+
+	webServer, err := web.NewServer(web.ServerConfig{}, logger, nil, topics)
 	if err != nil {
 		if closeErr := database.Close(); closeErr != nil {
 			logger.Warn("close sqlite database after web server error", "error", closeErr)
