@@ -86,6 +86,12 @@ h2 {
   line-height: 1.2;
 }
 
+h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+}
+
 .message-form,
 .topic-form {
   display: grid;
@@ -157,9 +163,91 @@ button:disabled {
   background: #9d9a91;
 }
 
+.secondary-button {
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--accent-strong);
+}
+
+.danger-button {
+  background: #9b2f2f;
+}
+
 .muted {
   color: var(--muted);
   font-size: 14px;
+}
+
+.topics-panel {
+  margin-top: 28px;
+  border-top: 1px solid var(--line);
+  padding-top: 22px;
+}
+
+.topics-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.topics-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.topics-status {
+  min-height: 21px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.topics-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.topic-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.topic-meta {
+  min-width: 0;
+}
+
+.topic-meta strong,
+.topic-meta span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.topic-meta span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.topic-meta p,
+.empty-state {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .status-grid {
@@ -205,5 +293,29 @@ button:disabled {
 
   .status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .topics-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topics-actions {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .topics-actions button {
+    width: 100%;
+  }
+
+  .topic-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topic-row form,
+  .topic-row button {
+    width: 100%;
   }
 }

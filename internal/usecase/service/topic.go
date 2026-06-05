@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -11,6 +12,7 @@ import (
 
 type TopicRepository interface {
 	SaveTopic(context.Context, *domain.Topic) (int64, error)
+	GetAllTopics(context.Context) ([]*domain.Topic, error)
 	DeleteTopic(ctx context.Context, slug string) error
 }
 
@@ -18,10 +20,22 @@ type TopicManager struct {
 	repo TopicRepository
 }
 
-func NewTopicManager(repo TopicRepository) *TopicManager {
-	return &TopicManager{
+func NewTopicManager(repo TopicRepository) (*TopicManager, error) {
+
+	var tm = &TopicManager{
 		repo: repo,
 	}
+
+	_, err := tm.CreateTopic(context.TODO(), &domain.Topic{
+		Name:        "unknown",
+		Description: "Это системный топик сюда нужно складывать сообщения, которые не подходят ни под один из существующих топиков.",
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("create default topic: %w", err)
+	}
+
+	return tm, nil
 }
 
 // CreateTopic creates a new topic and saves it to the repository
@@ -35,8 +49,20 @@ func (m *TopicManager) CreateTopic(ctx context.Context, topic *domain.Topic) (in
 }
 
 func (m *TopicManager) DeleteTopic(ctx context.Context, name string) error {
+
 	slug := topicSlug(name)
+	if slug == "" {
+		return errors.New("topic slug is empty")
+	}
+	if slug == topicSlug("unknown") {
+		return errors.New("cannot delete topic 'unknown'")
+	}
+
 	return m.repo.DeleteTopic(ctx, slug)
+}
+
+func (m *TopicManager) GetTopics(ctx context.Context) ([]*domain.Topic, error) {
+	return m.repo.GetAllTopics(ctx)
 }
 
 func topicSlug(name string) string {

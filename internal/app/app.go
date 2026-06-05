@@ -54,9 +54,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 
 	repository := storage.NewRepository(database)
-	topics := service.NewTopicManager(repository)
+	topics, err := service.NewTopicManager(repository)
+	if err != nil {
+		return nil, fmt.Errorf("create topic manager: %w", err)
+	}
 
-	webServer, err := web.NewServer(web.ServerConfig{}, logger, nil, topics)
+	webServer, err := web.NewServer(logger, nil, topics)
 	if err != nil {
 		if closeErr := database.Close(); closeErr != nil {
 			logger.Warn("close sqlite database after web server error", "error", closeErr)

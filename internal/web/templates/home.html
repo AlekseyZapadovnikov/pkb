@@ -49,6 +49,35 @@
           <button type="submit">Create topic</button>
         </div>
       </form>
+
+      <div class="topics-panel" aria-labelledby="topics-list-title">
+        <div class="topics-head">
+          <h3 id="topics-list-title">All topics</h3>
+          <div class="topics-actions">
+            <span class="muted" data-topics-count>{{len .Topics}} total</span>
+            <button class="secondary-button" type="button" data-show-topics>Show all topics</button>
+          </div>
+        </div>
+        <p class="topics-status" data-topics-status aria-live="polite"></p>
+
+        <ul class="topics-list" data-topics-list>
+          {{range .Topics}}
+            <li class="topic-row">
+              <div class="topic-meta">
+                <strong>{{.Name}}</strong>
+                <span>{{.Slug}}</span>
+                {{if .Description}}
+                  <p>{{.Description}}</p>
+                {{end}}
+              </div>
+              <form action="/topics/{{.Slug}}/delete" method="post">
+                <button class="danger-button" type="submit">Delete</button>
+              </form>
+            </li>
+          {{end}}
+        </ul>
+        <p class="empty-state" data-topics-empty {{if .Topics}}hidden{{end}}>No topics yet.</p>
+      </div>
     </section>
 
     <section class="status-grid" aria-label="Application status">
@@ -62,5 +91,6 @@
       </div>
     </section>
   </main>
+  <script src="/static/topics.js" defer></script>
 </body>
 </html>
