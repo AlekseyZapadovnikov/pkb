@@ -39,13 +39,6 @@ CREATE TABLE topics (
     description TEXT NOT NULL DEFAULT ''
 );
 
-INSERT INTO topics (slug, name, description)
-VALUES (
-    'unknown',
-    'unknown',
-    'Messages that could not be confidently assigned to existing topics.'
-);
-
 CREATE TABLE knowledge_item_topics (
     knowledge_item_id INTEGER NOT NULL,
     topic_id INTEGER NOT NULL,
