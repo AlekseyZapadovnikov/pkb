@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -36,10 +35,6 @@ func (t *Transactor) WithTx(ctx context.Context, fn func(context.Context) error)
 			tx.Rollback()
 		} else {
 			err = tx.Commit()
-		}
-
-		if err = tx.Commit(); err != nil {
-			err = fmt.Errorf("failed to commit transaction: %w", err)
 		}
 	}()
 
