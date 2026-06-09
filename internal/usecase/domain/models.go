@@ -98,10 +98,7 @@ type Topic struct {
 	// Описание границ топика для пользователя и классификатора.
 }
 
-type KnowledgeItem struct {
-	ID int64
-	// Внутренний ID структурированной записи знания.
-
+type KnowledgeItemBody struct {
 	SourceMessageID int64
 	// ID исходного сообщения, из которого была создана эта запись.
 
@@ -128,6 +125,14 @@ type KnowledgeItem struct {
 	//   "tags": ["java", "sockets"],
 	//   "project": "university"
 	// }
+}
+
+type KnowledgeItem struct {
+	ID int64
+	// Внутренний ID структурированной записи знания.
+
+	Body *KnowledgeItemBody
+	// Тело записи знания.
 
 	CreatedAt time.Time
 	// Когда запись была создана.
@@ -136,7 +141,39 @@ type KnowledgeItem struct {
 	// Когда запись последний раз обновлялась.
 }
 
-type ClassificationResult struct {
+type ShortTopic struct {
+	Name        string `json:"slug"`
+	Description string `json:"description"`
+}
+
+type UnknownKnowledgeItemBody struct {
+	Reason string
+	// Причина, по которой классификатор не смог отнести сообщение ни к одному топику.
+
+	RawOutputJSON json.RawMessage
+	// Полный сырой ответ классификатора, если он есть.
+	// Может помочь в будущем для анализа ошибок классификации.
+
+	SugestTopics []ShortTopic
+	// Моделька предложет несколько названий для топиков их описание, а пользователь сможет выбрать 1 из них
+
+}
+type UnknownKnowledgeItem struct {
+	ID int64
+	// Внутренний ID записи с неизвестным знанием.
+
+	SourceMessageID int64
+	// ID исходного сообщения, из которого была создана эта запись.
+
+	CreatedAt time.Time
+	// Когда запись была создана.
+
+	UpdatedAt time.Time
+	// Когда запись последний раз обновлялась.
+}
+
+// тут важно, что это результат классификации именно одной записи.
+type ClassificationResultPart struct {
 	Kind ClassificationKind
 	// Общий результат классификации:
 	// knowledge или unknown.
@@ -145,7 +182,7 @@ type ClassificationResult struct {
 	// Заголовок будущего KnowledgeItem.
 
 	Body string
-	// Нормализованное описание будущего KnowledgeItem.
+	// Описание будущего KnowledgeItem.
 
 	TopicSlugs []string
 	// Slug-и топиков, выбранных классификатором.
@@ -158,8 +195,19 @@ type ClassificationResult struct {
 	// nil, если дополнительных данных нет.
 
 	Reason string
-	// Причина, если Kind == unknown.
+	// Причина, если Kind == unknown
 
 	RawOutputJSON json.RawMessage
 	// Полный сырой ответ классификатора, если он есть.
+}
+
+type ClassificationResult struct {
+	SourceMessageID int64
+	// ID исходного сообщения, из которого была создана эта запись.
+
+	Result []ClassificationResultPart
+	// Результат классификации, который может состоять из нескольких частей.
+	// Например, из одного большого сообщения можно выделить несколько логических блоков,
+	// которые относятся к разным топикам. В этом случае классификатор может вернуть несколько частей,
+	// каждая из которых будет отнесена к своему топику.
 }

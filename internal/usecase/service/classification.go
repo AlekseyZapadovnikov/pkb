@@ -1,12 +1,17 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"pkb/internal/usecase/domain"
+	"text/template"
 	"time"
+
+	"pkb/prompts"
+
+	"pkb/internal/usecase/domain"
 )
 
 type JobTopicRepository interface {
@@ -84,10 +89,35 @@ func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) 
 	if err != nil {
 		return fmt.Errorf("failed to marshal topics: %w", err)
 	}
-	dataStr := string(data)
 
-	// как-то объединить системный промпт для классификации и туда подмешать все топики, которые мы вытащили
+	prompt, err := BuildClassifyPrompt(data, job.SourceMessage.RawText)
+	if err != nil {
+		return fmt.Errorf("failed to build classify prompt: %w", err)
+	}
+	_ = prompt
+
 	// отправить в LLM и получить ответ в формате JSON
 	//решать, что делать с этим JSON
 	return nil
+}
+
+func BuildClassifyPrompt(topicsJSON []byte, inputText string) (string, error) {
+	tmpl, err := template.New("classify").
+		Option("missingkey=error").
+		Parse(prompts.Classify)
+	if err != nil {
+		return "", fmt.Errorf("parse classify prompt template: %w", err)
+	}
+
+	data := map[string]any{
+		"TopicsJSON": string(topicsJSON),
+		"InputText":  inputText,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("execute classify prompt template: %w", err)
+	}
+
+	return buf.String(), nil
 }
