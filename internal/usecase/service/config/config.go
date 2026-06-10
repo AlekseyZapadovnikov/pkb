@@ -16,6 +16,15 @@ type Config struct {
 	ShutdownTimeout time.Duration `env:"PKB_SHUTDOWN_TIMEOUT" env-default:"5s"`
 }
 
+type ProviderConfig struct {
+	Name     string
+	Kind     string // openai_compatible, gemini, etc
+	BaseURL  string
+	APIKey   string
+	Model    string
+	ProxyURL string
+}
+
 // Load читает настройки из переменных окружения и заполняет значения по умолчанию.
 func Load() (Config, error) {
 	var cfg Config

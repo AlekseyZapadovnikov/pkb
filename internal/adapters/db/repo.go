@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -17,13 +18,27 @@ type Repository struct {
 	db *sqlx.DB
 }
 
+type sqlStore interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryxContext(context.Context, string, ...any) (*sqlx.Rows, error)
+	QueryRowxContext(context.Context, string, ...any) *sqlx.Row
+}
+
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) SaveMessage(ctx context.Context, msg *domain.SourceMessage) (id int64, err error) {
+func (r *Repository) store(ctx context.Context) sqlStore {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx
+	}
+	return r.db
+}
 
-	result, err := r.db.ExecContext(ctx, `
+func (r *Repository) SaveMessage(ctx context.Context, msg *domain.SourceMessage) (id int64, err error) {
+	store := r.store(ctx)
+
+	result, err := store.ExecContext(ctx, `
 		INSERT INTO source_messages (source_type, raw_text)
 		VALUES (?, ?)
 	`, msg.SourceType, msg.RawText,
@@ -42,7 +57,9 @@ func (r *Repository) SaveMessage(ctx context.Context, msg *domain.SourceMessage)
 }
 
 func (r *Repository) SaveTopic(ctx context.Context, topic *domain.Topic) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+	store := r.store(ctx)
+
+	result, err := store.ExecContext(ctx, `
 		INSERT INTO topics (slug, name, description)
 		VALUES (?, ?, ?)
 	`, topic.Slug, topic.Name, topic.Description)
@@ -59,7 +76,9 @@ func (r *Repository) SaveTopic(ctx context.Context, topic *domain.Topic) (int64,
 }
 
 func (r *Repository) GetAllTopics(ctx context.Context) ([]*domain.Topic, error) {
-	rows, err := r.db.QueryxContext(ctx, `
+	store := r.store(ctx)
+
+	rows, err := store.QueryxContext(ctx, `
 		SELECT id, slug, name, description
 		FROM topics
 		ORDER BY id
@@ -85,7 +104,9 @@ func (r *Repository) GetAllTopics(ctx context.Context) ([]*domain.Topic, error) 
 }
 
 func (r *Repository) DeleteTopic(ctx context.Context, slug string) error {
-	if _, err := r.db.ExecContext(ctx, `
+	store := r.store(ctx)
+
+	if _, err := store.ExecContext(ctx, `
 		DELETE FROM topics
 		WHERE slug = ?
 	`, slug); err != nil {
@@ -95,8 +116,130 @@ func (r *Repository) DeleteTopic(ctx context.Context, slug string) error {
 	return nil
 }
 
+func (r *Repository) SaveKnowledgeItem(ctx context.Context, item *domain.KnowledgeItem) (int64, error) {
+	if item == nil {
+		return 0, errors.New("knowledge item is nil")
+	}
+	if item.Body == nil {
+		return 0, errors.New("knowledge item body is nil")
+	}
+
+	var id int64
+	err := NewTransactor(r.db).WithTx(ctx, func(ctx context.Context) error {
+		var err error
+		id, err = r.saveKnowledgeItem(ctx, item)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
+}
+
+func (r *Repository) saveKnowledgeItem(ctx context.Context, item *domain.KnowledgeItem) (int64, error) {
+	store := r.store(ctx)
+	body := item.Body
+
+	result, err := store.ExecContext(ctx, `
+		INSERT INTO knowledge_items (source_message_id, title, body, confidence, data_json)
+		VALUES (?, ?, ?, ?, ?)
+	`, body.SourceMessageID, body.Title, body.Body, body.Confidence, rawJSONValue(body.DataJSON))
+	if err != nil {
+		return 0, fmt.Errorf("insert knowledge item: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read inserted knowledge item id: %w", err)
+	}
+
+	for _, topic := range body.Topics {
+		topicID, err := r.topicID(ctx, store, topic)
+		if err != nil {
+			return 0, err
+		}
+
+		if _, err := store.ExecContext(ctx, `
+			INSERT INTO knowledge_item_topics (knowledge_item_id, topic_id)
+			VALUES (?, ?)
+		`, id, topicID); err != nil {
+			return 0, fmt.Errorf("insert knowledge item topic: %w", err)
+		}
+	}
+
+	item.ID = id
+
+	return id, nil
+}
+
+func (r *Repository) SaveUnknownKnowledgeItem(ctx context.Context, item *domain.UnknownKnowledgeItem, body *domain.UnknownKnowledgeItemBody) (int64, error) {
+	if item == nil {
+		return 0, errors.New("unknown knowledge item is nil")
+	}
+	if body == nil {
+		return 0, errors.New("unknown knowledge item body is nil")
+	}
+
+	var suggestTopics any
+	if body.SugestTopics != nil {
+		data, err := json.Marshal(body.SugestTopics)
+		if err != nil {
+			return 0, fmt.Errorf("marshal suggest topics: %w", err)
+		}
+		suggestTopics = string(data)
+	}
+
+	store := r.store(ctx)
+	result, err := store.ExecContext(ctx, `
+		INSERT INTO unknown_knowledge_items (source_message_id, reason, raw_output_json, suggest_topics_json)
+		VALUES (?, ?, ?, ?)
+	`, item.SourceMessageID, body.Reason, rawJSONValue(body.RawOutputJSON), suggestTopics)
+	if err != nil {
+		return 0, fmt.Errorf("insert unknown knowledge item: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read inserted unknown knowledge item id: %w", err)
+	}
+
+	item.ID = id
+
+	return id, nil
+}
+
+func (r *Repository) topicID(ctx context.Context, store sqlStore, topic *domain.Topic) (int64, error) {
+	if topic == nil {
+		return 0, errors.New("topic is nil")
+	}
+	if topic.ID != 0 {
+		return topic.ID, nil
+	}
+	if topic.Slug == "" {
+		return 0, errors.New("topic id and slug are empty")
+	}
+
+	var id int64
+	err := store.QueryRowxContext(ctx, `
+		SELECT id
+		FROM topics
+		WHERE slug = ?
+	`, topic.Slug).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("topic %q does not exist", topic.Slug)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("select topic id: %w", err)
+	}
+
+	return id, nil
+}
+
 func (r *Repository) CreateClassificationJob(ctx context.Context, sourceMessageID int64) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+	store := r.store(ctx)
+
+	result, err := store.ExecContext(ctx, `
 		INSERT INTO processing_jobs (job_type, source_message_id, status)
 		VALUES (?, ?, ?)
 	`, domain.JobTypeClassifyMessage, sourceMessageID, domain.JobStatusPending)
@@ -112,7 +255,57 @@ func (r *Repository) CreateClassificationJob(ctx context.Context, sourceMessageI
 	return id, nil
 }
 
+func (r *Repository) SaveJob(ctx context.Context, job *domain.Job) error {
+	if job == nil {
+		return errors.New("job is nil")
+	}
+	if job.SourceMessage == nil {
+		return errors.New("job source message is nil")
+	}
+	if job.JobType == "" {
+		return errors.New("job type is empty")
+	}
+	if !isValidJobStatus(job.Status) {
+		return fmt.Errorf("save job: unknown status %q", job.Status)
+	}
+
+	store := r.store(ctx)
+	result, err := store.ExecContext(ctx, `
+		INSERT INTO processing_jobs (
+			job_type,
+			source_message_id,
+			status,
+			attempts,
+			error,
+			started_at,
+			finished_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, job.JobType,
+		job.SourceMessage.ID,
+		job.Status,
+		job.Attempts,
+		stringPointerValue(job.Error),
+		timePointerValue(job.StartedAt),
+		timePointerValue(job.FinishedAt),
+	)
+	if err != nil {
+		return fmt.Errorf("insert job: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("read inserted job id: %w", err)
+	}
+
+	job.ID = id
+
+	return nil
+}
+
 func (r *Repository) GetPendingClassificationJob(ctx context.Context) (*domain.Job, error) {
+	store := r.store(ctx)
+
 	var row struct {
 		JobID                  int64             `db:"job_id"`
 		JobType                domain.JobType    `db:"job_type"`
@@ -129,7 +322,7 @@ func (r *Repository) GetPendingClassificationJob(ctx context.Context) (*domain.J
 		SourceMessageCreatedAt string            `db:"message_created_at"`
 	}
 
-	err := r.db.QueryRowxContext(ctx, `
+	err := store.QueryRowxContext(ctx, `
 		SELECT
 			j.id AS job_id,
 			j.job_type,
@@ -217,7 +410,9 @@ func (r *Repository) SetJobStatus(ctx context.Context, jobID int64, status domai
 		return fmt.Errorf("set job status: unknown status %q", status)
 	}
 
-	result, err := r.db.ExecContext(ctx, `
+	store := r.store(ctx)
+
+	result, err := store.ExecContext(ctx, `
 		UPDATE processing_jobs
 		SET status = ?,
 			updated_at = CURRENT_TIMESTAMP
@@ -236,6 +431,27 @@ func (r *Repository) SetJobStatus(ctx context.Context, jobID int64, status domai
 	}
 
 	return nil
+}
+
+func rawJSONValue(data json.RawMessage) any {
+	if len(data) == 0 {
+		return nil
+	}
+	return string(data)
+}
+
+func stringPointerValue(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func timePointerValue(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.Format("2006-01-02 15:04:05")
 }
 
 func parseSQLiteTime(value string) (time.Time, error) { // TODO проверить, есть ли у этой функции готовая реализация в sqlx, если что поменять эту функцию

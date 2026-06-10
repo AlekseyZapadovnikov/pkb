@@ -47,14 +47,27 @@ CREATE TABLE knowledge_item_topics (
     FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
 );
 
+CREATE TABLE unknown_knowledge_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_message_id INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    raw_output_json TEXT,
+    suggest_topics_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_message_id) REFERENCES source_messages(id)
+);
+
 CREATE INDEX idx_processing_jobs_status ON processing_jobs(status);
 CREATE INDEX idx_processing_jobs_source_message_id ON processing_jobs(source_message_id);
 CREATE INDEX idx_knowledge_items_source_message_id ON knowledge_items(source_message_id);
 CREATE INDEX idx_topics_slug ON topics(slug);
 CREATE INDEX idx_knowledge_item_topics_topic_id ON knowledge_item_topics(topic_id);
 CREATE INDEX idx_knowledge_item_topics_item_id ON knowledge_item_topics(knowledge_item_id);
+CREATE INDEX idx_unknown_knowledge_items_source_message_id ON unknown_knowledge_items(source_message_id);
 
 -- +goose Down
+DROP TABLE IF EXISTS unknown_knowledge_items;
 DROP TABLE IF EXISTS knowledge_item_topics;
 DROP TABLE IF EXISTS topics;
 DROP TABLE IF EXISTS knowledge_items;

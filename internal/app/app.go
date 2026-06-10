@@ -12,10 +12,10 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	storage "pkb/internal/db"
+	storage "pkb/internal/adapters/db"
+	"pkb/internal/adapters/web"
 	"pkb/internal/usecase/service"
 	"pkb/internal/usecase/service/config"
-	"pkb/internal/web"
 )
 
 // App объединяет конфигурацию, логгер и HTTP-сервер приложения.

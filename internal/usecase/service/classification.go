@@ -20,8 +20,19 @@ type JobTopicRepository interface {
 	GetAllTopics(ctx context.Context) ([]*domain.Topic, error)
 }
 
+type ModelClient interface {
+	GenerateJSON(ctx context.Context, req GenerateRequest) (json.RawMessage, error)
+}
+
+type GenerateRequest struct {
+	SystemText string
+	UserText   string
+	WantJSON   bool
+}
+
 type Classifier struct {
 	jr JobTopicRepository
+	mc ModelClient
 
 	jobID int64
 	jobQ  chan domain.Job
@@ -33,6 +44,7 @@ func (c *Classifier) AddMessageToQueue(ctx context.Context, msg *domain.SourceMe
 	job.ID = c.jobID
 	c.jobID++
 
+	job.JobType = domain.JobTypeClassifyMessage
 	job.SourceMessage = msg
 	job.Status = domain.JobStatusPending
 	job.CreatedAt = time.Now()
