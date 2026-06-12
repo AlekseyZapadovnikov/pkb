@@ -13,6 +13,7 @@ import (
 type TopicRepository interface {
 	SaveTopic(context.Context, *domain.Topic) (int64, error)
 	GetAllTopics(context.Context) ([]*domain.Topic, error)
+	UpdateTopicDescription(ctx context.Context, slug string, description string) error
 	DeleteTopic(ctx context.Context, slug string) error
 }
 
@@ -59,6 +60,15 @@ func (m *TopicManager) DeleteTopic(ctx context.Context, name string) error {
 	}
 
 	return m.repo.DeleteTopic(ctx, slug)
+}
+
+func (m *TopicManager) UpdateTopicDescription(ctx context.Context, name string, description string) error {
+	slug := topicSlug(name)
+	if slug == "" {
+		return errors.New("topic slug is empty")
+	}
+
+	return m.repo.UpdateTopicDescription(ctx, slug, description)
 }
 
 func (m *TopicManager) GetTopics(ctx context.Context) ([]*domain.Topic, error) {

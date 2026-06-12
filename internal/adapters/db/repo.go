@@ -116,6 +116,20 @@ func (r *Repository) DeleteTopic(ctx context.Context, slug string) error {
 	return nil
 }
 
+func (r *Repository) UpdateTopicDescription(ctx context.Context, slug string, description string) error {
+	store := r.store(ctx)
+
+	if _, err := store.ExecContext(ctx, `
+		UPDATE topics
+		SET description = ?
+		WHERE slug = ?
+	`, description, slug); err != nil {
+		return fmt.Errorf("update topic description: %w", err)
+	}
+
+	return nil
+}
+
 func (r *Repository) SaveKnowledgeItem(ctx context.Context, item *domain.KnowledgeItem) (int64, error) {
 	if item == nil {
 		return 0, errors.New("knowledge item is nil")

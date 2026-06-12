@@ -9,9 +9,8 @@ import (
 	"text/template"
 	"time"
 
-	"pkb/prompts"
-
 	"pkb/internal/usecase/domain"
+	"pkb/prompts"
 )
 
 type JobTopicRepository interface {
@@ -27,7 +26,6 @@ type ModelClient interface {
 type GenerateRequest struct {
 	SystemText string
 	UserText   string
-	WantJSON   bool
 }
 
 type Classifier struct {
@@ -61,7 +59,9 @@ func (c *Classifier) ProcessJobWorker(ctx context.Context) {
 	for {
 		select {
 		case job := <-c.jobQ:
-			c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusRunning)
+			if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusRunning); err != nil {
+				slog.Error("failed to set job status", "id", job.ID, "error", err)
+			}
 			slog.Debug("processing job", "id", job.ID)
 			if err := c.ProcessClassification(ctx, job); err != nil {
 				slog.Error("failed to process job", "id", job.ID, "error", err)
@@ -83,7 +83,6 @@ type ShortTopic struct {
 }
 
 func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) error {
-	// сходить в БД и достать все топики
 	topics, err := c.jr.GetAllTopics(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get topics: %w", err)
@@ -106,10 +105,21 @@ func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) 
 	if err != nil {
 		return fmt.Errorf("failed to build classify prompt: %w", err)
 	}
-	_ = prompt
+	ans, err := c.mc.GenerateJSON(ctx, GenerateRequest{
+		SystemText: "",
+		UserText:   prompt,
+	})
 
-	// отправить в LLM и получить ответ в формате JSON
-	//решать, что делать с этим JSON
+	if err != nil {
+		return fmt.Errorf("failed to generate JSON: %w", err)
+	}
+
+	var res domain.ClassificationResult
+	if json.Unmarshal(ans, &res) != nil {
+		slog.Error("failed to unmarshal classification result", "error", err, "response", string(ans))
+		// TODO нужно как-то ретраить запрос если нееросеть выдала неправильный json
+	}
+
 	return nil
 }
 

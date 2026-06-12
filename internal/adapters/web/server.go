@@ -27,6 +27,7 @@ type MessageSubmitter interface {
 type TopicManager interface {
 	CreateTopic(context.Context, *domain.Topic) (topicID int64, err error)
 	DeleteTopic(context.Context, string) error
+	UpdateTopicDescription(context.Context, string, string) error
 	GetTopics(context.Context) ([]*domain.Topic, error)
 }
 
@@ -81,7 +82,8 @@ func (s *Server) Routes() http.Handler {
 	router.Post("/message", s.handleTextMessage)
 	router.Get("/topics", s.handleGetTopics)
 	router.Post("/topics", s.handleCreateTopic)
-	router.Post("/topics/{slug}/delete", s.handleDeleteTopic)
+	router.Patch("/topics/{slug}/description", s.handleUpdateTopicDescription)
+	router.Delete("/topics/{slug}", s.handleDeleteTopic)
 	router.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(s.staticFS))))
 	return router
 }
@@ -167,6 +169,28 @@ func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func (s *Server) handleUpdateTopicDescription(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		http.Error(w, "slug is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		s.logger.Error("parse topic description form", "error", err)
+		http.Error(w, "invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.topics.UpdateTopicDescription(r.Context(), slug, r.FormValue("description")); err != nil {
+		s.logger.Error("update topic description", "error", err, "slug", slug)
+		http.Error(w, "failed to update topic description", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	if slug == "" {
@@ -180,7 +204,7 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleGetTopics(w http.ResponseWriter, r *http.Request) {

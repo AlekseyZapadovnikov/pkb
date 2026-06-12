@@ -66,13 +66,12 @@
               <div class="topic-meta">
                 <strong>{{.Name}}</strong>
                 <span>{{.Slug}}</span>
-                {{if .Description}}
-                  <p>{{.Description}}</p>
-                {{end}}
+                <form class="topic-description-form" action="/topics/{{.Slug}}/description" data-topic-description-form>
+                  <textarea class="compact-textarea" name="description" aria-label="Description for {{.Name}}">{{.Description}}</textarea>
+                  <button class="secondary-button" type="submit">Save description</button>
+                </form>
               </div>
-              <form action="/topics/{{.Slug}}/delete" method="post">
-                <button class="danger-button" type="submit">Delete</button>
-              </form>
+              <button class="danger-button" type="button" data-delete-topic data-delete-url="/topics/{{.Slug}}">Delete</button>
             </li>
           {{end}}
         </ul>

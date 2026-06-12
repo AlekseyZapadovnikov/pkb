@@ -17,6 +17,13 @@
     count.textContent = total + " total";
   }
 
+  function reloadAfterAction(response) {
+    if (!response.ok) {
+      throw new Error("HTTP " + response.status);
+    }
+    window.location.reload();
+  }
+
   function renderTopics(topics) {
     list.textContent = "";
 
@@ -30,8 +37,10 @@
       var meta = document.createElement("div");
       var name = document.createElement("strong");
       var slugText = document.createElement("span");
-      var form = document.createElement("form");
-      var button = document.createElement("button");
+      var descriptionForm = document.createElement("form");
+      var descriptionInput = document.createElement("textarea");
+      var saveButton = document.createElement("button");
+      var deleteButton = document.createElement("button");
       var description = topicValue(topic, "description");
 
       item.className = "topic-row";
@@ -42,21 +51,28 @@
       meta.appendChild(name);
       meta.appendChild(slugText);
 
-      if (description) {
-        var descriptionText = document.createElement("p");
-        descriptionText.textContent = description;
-        meta.appendChild(descriptionText);
-      }
+      descriptionForm.className = "topic-description-form";
+      descriptionForm.action = "/topics/" + encodeURIComponent(slug) + "/description";
+      descriptionForm.setAttribute("data-topic-description-form", "");
+      descriptionInput.className = "compact-textarea";
+      descriptionInput.name = "description";
+      descriptionInput.value = description;
+      descriptionInput.setAttribute("aria-label", "Description for " + name.textContent);
+      saveButton.className = "secondary-button";
+      saveButton.type = "submit";
+      saveButton.textContent = "Save description";
+      descriptionForm.appendChild(descriptionInput);
+      descriptionForm.appendChild(saveButton);
+      meta.appendChild(descriptionForm);
 
-      form.action = "/topics/" + encodeURIComponent(slug) + "/delete";
-      form.method = "post";
-      button.className = "danger-button";
-      button.type = "submit";
-      button.textContent = "Delete";
-      form.appendChild(button);
+      deleteButton.className = "danger-button";
+      deleteButton.type = "button";
+      deleteButton.textContent = "Delete";
+      deleteButton.setAttribute("data-delete-topic", "");
+      deleteButton.setAttribute("data-delete-url", "/topics/" + encodeURIComponent(slug));
 
       item.appendChild(meta);
-      item.appendChild(form);
+      item.appendChild(deleteButton);
       list.appendChild(item);
     });
 
@@ -89,6 +105,42 @@
       .finally(function () {
         showButton.disabled = false;
         showButton.textContent = "Show all topics";
+      });
+  });
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target.closest("[data-topic-description-form]");
+    if (!form) {
+      return;
+    }
+
+    event.preventDefault();
+
+    fetch(form.action, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams(new FormData(form)),
+    })
+      .then(reloadAfterAction)
+      .catch(function () {
+        status.textContent = "Failed to update topic description.";
+      });
+  });
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-delete-topic]");
+    if (!button) {
+      return;
+    }
+
+    fetch(button.getAttribute("data-delete-url"), {
+      method: "DELETE",
+    })
+      .then(reloadAfterAction)
+      .catch(function () {
+        status.textContent = "Failed to delete topic.";
       });
   });
 })();

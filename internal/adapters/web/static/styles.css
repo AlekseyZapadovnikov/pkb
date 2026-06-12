@@ -227,6 +227,7 @@ button:disabled {
 }
 
 .topic-meta {
+  flex: 1;
   min-width: 0;
 }
 
@@ -248,6 +249,20 @@ button:disabled {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.5;
+}
+
+.topic-description-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.topic-description-form textarea {
+  min-height: 76px;
+}
+
+.topic-description-form button {
+  justify-self: start;
 }
 
 .status-grid {
