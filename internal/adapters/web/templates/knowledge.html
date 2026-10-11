@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Personal KB</a>
+    <nav class="nav" aria-label="Main navigation">
+      <a href="/">Add note</a>
+      <a href="/knowledge" aria-current="page">Knowledge</a>
+      <a href="/topics/manage">Topics</a>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section class="knowledge-head" aria-labelledby="knowledge-title">
+      <div>
+        <p class="eyebrow">Knowledge base</p>
+        <h1 id="knowledge-title">Knowledge</h1>
+      </div>
+      <a class="secondary-link" href="/">Add note</a>
+    </section>
+
+    <form class="knowledge-search" action="/knowledge" method="get" role="search">
+      <label for="knowledge-query"><span>Search knowledge</span></label>
+      <div class="search-row">
+        <input id="knowledge-query" name="query" type="search" value="{{.Query}}" placeholder="Search knowledge…">
+        <button type="submit">Search</button>
+      </div>
+      {{if .Query}}
+        <div class="form-row">
+          <span class="muted">Showing up to {{.Limit}} results.</span>
+          <a class="secondary-link" href="/knowledge">Clear search</a>
+        </div>
+      {{end}}
+    </form>
+
+    {{if .SearchError}}
+      <section class="input-surface">
+        <p class="job-error" role="alert">{{.SearchError}}</p>
+      </section>
+    {{else if .Items}}
+      <section class="knowledge-list" aria-label="Knowledge items">
+        {{range .Items}}
+          <article class="knowledge-card" data-knowledge-id="{{.ID}}">
+            <header class="knowledge-card-head">
+              <div>
+                <span class="knowledge-id">#{{.ID}}</span>
+                <h2>{{.Body.Title}}</h2>
+              </div>
+              {{if .Body.Confidence}}
+                <span class="confidence">confidence {{formatConfidence .Body.Confidence}}</span>
+              {{end}}
+            </header>
+
+            <p class="knowledge-body">{{.Body.Body}}</p>
+
+            <div class="topic-badges" aria-label="Topics">
+              {{range .Body.Topics}}
+                <span class="topic-badge" data-topic-id="{{.ID}}">{{.Name}}</span>
+              {{else}}
+                <span class="topic-badge">Без темы</span>
+              {{end}}
+            </div>
+
+            <div class="knowledge-meta">
+              <span>Created {{.CreatedAt.Format "2006-01-02 15:04"}}</span>
+              <span>Source #{{.Body.SourceMessageID}}</span>
+            </div>
+
+            <details class="source-message" data-knowledge-json {{if not .Body.DataJSON}}hidden{{end}}>
+              <summary>Data JSON</summary>
+              <pre>{{printf "%s" .Body.DataJSON}}</pre>
+            </details>
+
+            {{if .SourceMessage}}
+              <details class="source-message">
+                <summary>Source message</summary>
+                <pre>{{.SourceMessage.RawText}}</pre>
+              </details>
+            {{end}}
+
+            <div class="form-row knowledge-edit-actions">
+              <button type="button" class="secondary-button" data-edit-knowledge>Edit</button>
+            </div>
+            <form class="knowledge-edit-form" hidden>
+              <label><span>Title</span><input name="title" value="{{.Body.Title}}" required></label>
+              <label><span>Body</span><textarea name="body" required>{{.Body.Body}}</textarea></label>
+              <label>
+                <span>Topics (select several or clear all)</span>
+                <select name="topics" multiple aria-describedby="topics-hint-{{.ID}}"></select>
+              </label>
+              <p id="topics-hint-{{.ID}}" class="muted form-hint">Use Ctrl or Command to select or deselect topics.</p>
+              <label>
+                <span>Data JSON (leave empty to clear)</span>
+                <textarea name="data_json" class="compact-textarea" aria-describedby="json-error-{{.ID}}">{{if .Body.DataJSON}}{{printf "%s" .Body.DataJSON}}{{end}}</textarea>
+              </label>
+              <p id="json-error-{{.ID}}" class="job-error" data-json-error role="alert" hidden></p>
+              <p class="job-error" data-edit-error role="alert" hidden></p>
+              <div class="form-row">
+                <button type="submit">Save</button>
+                <button type="button" class="secondary-button" data-clear-topics>Clear topics</button>
+                <button type="button" class="secondary-button" data-cancel-edit>Cancel</button>
+              </div>
+            </form>
+          </article>
+        {{end}}
+      </section>
+
+      {{if not .Query}}
+      <nav class="pagination" aria-label="Knowledge pagination">
+        {{if .BeforeID}}
+          <a class="secondary-link" href="/knowledge?limit={{.Limit}}">Latest</a>
+        {{end}}
+        {{if .HasMore}}
+          <a class="secondary-link" href="/knowledge?before_id={{.NextBeforeID}}&limit={{.Limit}}">Older</a>
+        {{end}}
+      </nav>
+      {{end}}
+    {{else}}
+      <section class="input-surface">
+        <p class="empty-state">{{if .Query}}No results for “{{.Query}}”.{{else}}No knowledge items yet.{{end}}</p>
+        {{if .BeforeID}}
+          <p class="empty-state"><a class="secondary-link" href="/knowledge?limit={{.Limit}}">Latest</a></p>
+        {{end}}
+      </section>
+    {{end}}
+  </main>
+  <script src="/static/knowledge.js" defer></script>
+</body>
+</html>

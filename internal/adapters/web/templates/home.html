@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Personal KB</a>
+    <nav class="nav" aria-label="Main navigation">
+      <a href="/" aria-current="page">Add note</a>
+      <a href="/knowledge">Knowledge</a>
+      <a href="/topics/manage">Topics</a>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section class="input-surface" aria-labelledby="page-title">
+      <div class="section-head">
+        <h1 id="page-title">Add note</h1>
+      </div>
+
+      <form class="message-form" action="/message" method="post" data-message-form>
+        <label for="raw-text"><span>Note</span></label>
+        <textarea id="raw-text" name="raw_text" placeholder="Write a note, task, link, or thought..." aria-describedby="note-hint" required></textarea>
+        <p class="muted form-hint" id="note-hint">Save a note to organize it into your knowledge base.</p>
+        <div class="form-row">
+          <button type="submit">Save note</button>
+          <span class="muted" data-message-status role="status"></span>
+        </div>
+      </form>
+
+      <div class="jobs-panel" aria-labelledby="jobs-title">
+        <div class="jobs-head">
+          <h2 id="jobs-title">Processing</h2>
+        </div>
+        <ul class="jobs-list" data-jobs-list aria-live="polite" aria-relevant="additions text"></ul>
+        <p class="empty-state" data-jobs-empty>Notes submitted on this page will appear here until you reload.</p>
+      </div>
+    </section>
+
+  </main>
+  <script src="/static/topics.js" defer></script>
+</body>
+</html>

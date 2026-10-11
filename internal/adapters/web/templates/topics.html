@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Personal KB</a>
+    <nav class="nav" aria-label="Main navigation">
+      <a href="/">Add note</a>
+      <a href="/knowledge">Knowledge</a>
+      <a href="/topics/manage" aria-current="page">Topics</a>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section class="input-surface" aria-labelledby="topics-title">
+      <div class="topics-head section-head">
+        <h1 id="topics-title">Topics</h1>
+        <button type="button" data-create-topic aria-expanded="false" aria-controls="create-topic-form">Create topic</button>
+      </div>
+
+      <form class="topic-form" action="/topics" method="post" id="create-topic-form" data-topic-form hidden>
+        <label>
+          <span>Topic name</span>
+          <input name="name" type="text" required>
+        </label>
+        <label>
+          <span>Description</span>
+          <textarea class="compact-textarea" name="description"></textarea>
+        </label>
+        <div class="form-row">
+          <button type="submit">Create topic</button>
+          <button class="secondary-button" type="button" data-close-topic>Cancel</button>
+        </div>
+      </form>
+
+      <div class="topics-panel" aria-labelledby="topics-list-title">
+        <div class="topics-head">
+          <h3 id="topics-list-title">All topics</h3>
+          <div class="topics-actions">
+            <span class="muted" data-topics-count>{{len .Topics}} total</span>
+            <button class="secondary-button" type="button" data-show-topics>Refresh topics</button>
+          </div>
+        </div>
+        <p class="topics-status" data-topics-status role="status">{{if .Created}}Topic created.{{end}}</p>
+
+        <ul class="topics-list" data-topics-list>
+          {{range .Topics}}
+            <li class="topic-row">
+              <div class="topic-meta">
+                <strong>{{.Name}}</strong>
+                <span>{{.Slug}}</span>
+                <p data-topic-description>{{if .Description}}{{.Description}}{{else}}No description.{{end}}</p>
+                <form class="topic-description-form" action="/topics/{{.Slug}}/description" data-topic-description-form hidden>
+                  <textarea class="compact-textarea" name="description" aria-label="Description for {{.Name}}">{{.Description}}</textarea>
+                  <div class="topic-edit-actions">
+                    <button class="secondary-button" type="submit">Save</button>
+                    <button class="secondary-button" type="button" data-cancel-topic-update>Cancel</button>
+                  </div>
+                </form>
+              </div>
+              <div class="topic-row-actions">
+                <button class="secondary-button" type="button" data-update-topic>Edit description</button>
+                <button class="danger-button" type="button" data-delete-topic data-delete-url="/topics/{{.Slug}}">Delete</button>
+              </div>
+            </li>
+          {{end}}
+        </ul>
+        <p class="empty-state" data-topics-empty {{if .Topics}}hidden{{end}}>No topics yet.</p>
+      </div>
+    </section>
+
+  </main>
+  <script src="/static/topics.js" defer></script>
+</body>
+</html>
