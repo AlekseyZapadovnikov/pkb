@@ -1,0 +1,16 @@
+name: Feature
+description: New functionality or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What to do
+      description: What should be added or changed and why
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: How to check that the task is complete

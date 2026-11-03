@@ -1,0 +1,11 @@
+name: Docs
+description: Documentation changes
+labels: [documentation]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What to change
+      description: Which document and what is missing or wrong
+    validations:
+      required: true
