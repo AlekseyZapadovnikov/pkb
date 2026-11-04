@@ -35,20 +35,18 @@ type Classifier struct {
 	mc ModelClient
 
 	jobID int64
-	jobQ  chan domain.Job
+	jobQ  *domain.JobQueue
 }
 
 func NewClassifier(jr JobTopicRepository, mc ModelClient) *Classifier {
 	return &Classifier{
 		jr:   jr,
 		mc:   mc,
-		jobQ: make(chan domain.Job, 10),
+		jobQ: domain.NewJobQueue(),
 	}
 }
 
-func (c *Classifier) AddMessageToQueue(ctx context.Context, msg *domain.SourceMessage) (jobID int64, err error) {
-	var job domain.Job
-
+func (c *Classifier) CreateJob(ctx context.Context, msg *domain.SourceMessage) (job domain.Job, err error) {
 	var sourceMessageID int64
 	var sourceType domain.SourceType
 	if msg != nil {
@@ -65,50 +63,59 @@ func (c *Classifier) AddMessageToQueue(ctx context.Context, msg *domain.SourceMe
 	job.Status = domain.JobStatusPending
 	job.CreatedAt = time.Now()
 	if err := c.jr.SaveJob(ctx, &job); err != nil {
-		return 0, fmt.Errorf("failed to save job: %w", err)
+		return domain.Job{}, fmt.Errorf("failed to save job: %w", err)
 	}
-
-	c.jobQ <- job
-	slog.Debug("classification job queued", "job_id", job.ID, "source_message_id", sourceMessageID, "status", job.Status)
-	return job.ID, nil
+	return job, nil
 }
 
 func (c *Classifier) ProcessJobWorker(ctx context.Context) {
 	for {
 		select {
-		case job := <-c.jobQ:
-			sourceMessageID := int64(0)
-			if job.SourceMessage != nil {
-				sourceMessageID = job.SourceMessage.ID
-			}
-			slog.Info("classification job received", "job_id", job.ID, "source_message_id", sourceMessageID, "status", job.Status)
-
-			if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusRunning); err != nil {
-				slog.Error("failed to set job status", "id", job.ID, "error", err)
-			} else {
-				slog.Info("classification job started", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusRunning)
-			}
-
-			if err := c.ProcessClassification(ctx, job); err != nil {
-				slog.Error("failed to process job", "id", job.ID, "error", err)
-				if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusFailed); err != nil {
-					slog.Error("failed to set job status", "id", job.ID, "error", err)
-				} else {
-					slog.Info("classification job failed", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusFailed)
-				}
-				continue
-			}
-
-			if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusDone); err != nil {
-				slog.Error("failed to set job status", "id", job.ID, "error", err)
-				continue
-			}
-			slog.Info("classification job finished", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusDone)
 		case <-ctx.Done():
-			// The last job needs to be handled properly.
 			slog.Info("classifier worker stopped")
 			return
+		default:
 		}
+
+		job, ok := c.jobQ.Pop()
+		if !ok {
+			select {
+			case <-ctx.Done():
+				slog.Info("classifier worker stopped")
+				return
+			case <-c.jobQ.Notify:
+				// wait for a new job to be added to the queue
+				continue
+			}
+		}
+
+		sourceMessageID := int64(0)
+		if job.SourceMessage != nil {
+			sourceMessageID = job.SourceMessage.ID
+		}
+		slog.Info("classification job received", "job_id", job.ID, "source_message_id", sourceMessageID, "status", job.Status)
+
+		if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusRunning); err != nil {
+			slog.Error("failed to set job status", "id", job.ID, "error", err)
+		} else {
+			slog.Info("classification job started", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusRunning)
+		}
+
+		if err := c.ProcessClassification(ctx, job); err != nil {
+			slog.Error("failed to process job", "id", job.ID, "error", err)
+			if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusFailed); err != nil {
+				slog.Error("failed to set job status", "id", job.ID, "error", err)
+			} else {
+				slog.Info("classification job failed", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusFailed)
+			}
+			continue
+		}
+
+		if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusDone); err != nil {
+			slog.Error("failed to set job status", "id", job.ID, "error", err)
+			continue
+		}
+		slog.Info("classification job finished", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusDone)
 	}
 }
 
@@ -275,7 +282,7 @@ func NewMessanger(log *slog.Logger, repo Repository, tx Transactor, class *Class
 
 // ProcessMessage processes a source message and saves it to the repository
 func (s *Messager) ProcessMessage(ctx context.Context, msg *domain.SourceMessage) (int64, error) {
-	var jobID int64
+	var job domain.Job
 
 	err := s.tx.WithTx(ctx, func(ctx context.Context) error {
 		messageID, err := s.repo.SaveMessage(ctx, msg)
@@ -285,7 +292,7 @@ func (s *Messager) ProcessMessage(ctx context.Context, msg *domain.SourceMessage
 
 		msg.ID = messageID
 
-		jobID, err = s.class.AddMessageToQueue(ctx, msg)
+		job, err = s.class.CreateJob(ctx, msg)
 		if err != nil {
 			return err
 		}
@@ -297,5 +304,7 @@ func (s *Messager) ProcessMessage(ctx context.Context, msg *domain.SourceMessage
 		return -1, err
 	}
 
-	return jobID, nil
+	s.class.jobQ.Add(job)
+	slog.Debug("classification job queued", "job_id", job.ID, "source_message_id", msg.ID, "status", job.Status)
+	return job.ID, nil
 }

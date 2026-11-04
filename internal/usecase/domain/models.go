@@ -2,7 +2,10 @@ package domain
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
+
+	"github.com/gammazero/deque"
 )
 
 type SourceType string
@@ -85,6 +88,39 @@ type Job struct {
 
 	UpdatedAt time.Time
 	// When the job was last updated.
+}
+
+type JobQueue struct {
+	mu     sync.Mutex
+	queue  deque.Deque[Job]
+	Notify chan struct{}
+}
+
+func NewJobQueue() *JobQueue {
+	return &JobQueue{
+		Notify: make(chan struct{}, 1),
+	}
+}
+
+func (jq *JobQueue) Add(j Job) {
+	jq.mu.Lock()
+	defer jq.mu.Unlock()
+
+	jq.queue.PushBack(j)
+
+	select {
+	case jq.Notify <- struct{}{}:
+	default:
+	}
+}
+
+func (jq *JobQueue) Pop() (Job, bool) {
+	jq.mu.Lock()
+	defer jq.mu.Unlock()
+	if jq.queue.Len() == 0 {
+		return Job{}, false
+	}
+	return jq.queue.PopFront(), true
 }
 
 type Topic struct {
