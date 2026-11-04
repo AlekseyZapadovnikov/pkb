@@ -1,16 +1,16 @@
-name: Feature
-description: New functionality or improvement
+name: Новая функциональность
+description: Добавление или улучшение функциональности
 labels: [enhancement]
 body:
   - type: textarea
-    id: description
+    id: context
     attributes:
-      label: What to do
-      description: What should be added or changed and why
+      label: Контекст
+      description: Какую проблему нужно решить и почему это необходимо
     validations:
       required: true
   - type: textarea
-    id: done
+    id: task
     attributes:
-      label: Done when
-      description: How to check that the task is complete
+      label: Задача
+      description: Что нужно добавить или изменить

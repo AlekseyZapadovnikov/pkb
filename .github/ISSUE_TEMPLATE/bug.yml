@@ -1,23 +1,16 @@
-name: Bug
-description: Something works incorrectly
+name: Ошибка
+description: Что-то работает неправильно
 labels: [bug]
 body:
   - type: textarea
-    id: description
+    id: context
     attributes:
-      label: What happened
-      description: What you did, what you expected and what you got instead
+      label: Контекст
+      description: Как воспроизвести ошибку, какой результат ожидался и что произошло на самом деле
     validations:
       required: true
   - type: textarea
-    id: steps
+    id: task
     attributes:
-      label: Steps to reproduce
-      placeholder: |
-        1.
-        2.
-  - type: textarea
-    id: logs
-    attributes:
-      label: Logs
-      render: text
+      label: Задача
+      description: Что нужно исправить и как должно работать после исправления

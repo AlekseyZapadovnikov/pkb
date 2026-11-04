@@ -1,5 +1,5 @@
 Closes #
 
-## What changed
+## Что изменилось
 
-## How to test
+## Как проверить
