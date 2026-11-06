@@ -93,12 +93,14 @@ type Job struct {
 type JobQueue struct {
 	mu     sync.Mutex
 	queue  deque.Deque[Job]
+	usedID map[int64]bool
 	Notify chan struct{}
 }
 
 func NewJobQueue() *JobQueue {
 	return &JobQueue{
 		Notify: make(chan struct{}, 1),
+		usedID: make(map[int64]bool),
 	}
 }
 
@@ -106,6 +108,10 @@ func (jq *JobQueue) Add(j Job) {
 	jq.mu.Lock()
 	defer jq.mu.Unlock()
 
+	if jq.usedID[j.ID] {
+		return
+	}
+	jq.usedID[j.ID] = true
 	jq.queue.PushBack(j)
 
 	select {
@@ -120,6 +126,7 @@ func (jq *JobQueue) Pop() (Job, bool) {
 	if jq.queue.Len() == 0 {
 		return Job{}, false
 	}
+	delete(jq.usedID, jq.queue.Front().ID)
 	return jq.queue.PopFront(), true
 }
 
