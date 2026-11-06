@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -19,6 +20,9 @@ type JobTopicRepository interface {
 	SetJobStatus(context.Context, int64, domain.JobStatus) error
 	GetAllTopics(ctx context.Context) ([]*domain.Topic, error)
 	SaveKnowledgeItem(context.Context, *domain.KnowledgeItem) (int64, error)
+	GetClassificationJobsByStatus(ctx context.Context, status domain.JobStatus) ([]*domain.Job, error)
+	ResetRunningJobs(ctx context.Context, activeIDs []int64) error
+	ClaimJob(ctx context.Context, jobID int64) (bool, error)
 }
 
 type ModelClient interface {
@@ -33,16 +37,21 @@ type GenerateRequest struct {
 type Classifier struct {
 	jr JobTopicRepository
 	mc ModelClient
+	tx Transactor
 
-	jobID int64
-	jobQ  *domain.JobQueue
+	mu         sync.Mutex
+	activeJobs map[int64]struct{}
+
+	jobQ *domain.JobQueue
 }
 
-func NewClassifier(jr JobTopicRepository, mc ModelClient) *Classifier {
+func NewClassifier(jr JobTopicRepository, tx Transactor, mc ModelClient) *Classifier {
 	return &Classifier{
-		jr:   jr,
-		mc:   mc,
-		jobQ: domain.NewJobQueue(),
+		jr:         jr,
+		mc:         mc,
+		tx:         tx,
+		activeJobs: make(map[int64]struct{}),
+		jobQ:       domain.NewJobQueue(),
 	}
 }
 
@@ -55,9 +64,6 @@ func (c *Classifier) CreateJob(ctx context.Context, msg *domain.SourceMessage) (
 	}
 	slog.Debug("classification message received", "source_message_id", sourceMessageID, "source_type", sourceType)
 
-	job.ID = c.jobID
-	c.jobID++
-
 	job.JobType = domain.JobTypeClassifyMessage
 	job.SourceMessage = msg
 	job.Status = domain.JobStatusPending
@@ -66,6 +72,29 @@ func (c *Classifier) CreateJob(ctx context.Context, msg *domain.SourceMessage) (
 		return domain.Job{}, fmt.Errorf("failed to save job: %w", err)
 	}
 	return job, nil
+}
+
+// RecoverPendingJobs resets interrupted jobs and queues pending classification jobs.
+func (c *Classifier) RecoverPendingJobs(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	activeIDs := make([]int64, 0, len(c.activeJobs))
+	for id := range c.activeJobs {
+		activeIDs = append(activeIDs, id)
+	}
+	if err := c.jr.ResetRunningJobs(ctx, activeIDs); err != nil {
+		return fmt.Errorf("reset interrupted jobs: %w", err)
+	}
+
+	pendingJobs, err := c.jr.GetClassificationJobsByStatus(ctx, domain.JobStatusPending)
+	if err != nil {
+		return err
+	}
+	for _, j := range pendingJobs {
+		c.jobQ.Add(*j)
+	}
+	return nil
 }
 
 func (c *Classifier) ProcessJobWorker(ctx context.Context) {
@@ -89,32 +118,71 @@ func (c *Classifier) ProcessJobWorker(ctx context.Context) {
 			}
 		}
 
-		sourceMessageID := int64(0)
-		if job.SourceMessage != nil {
-			sourceMessageID = job.SourceMessage.ID
-		}
-		slog.Info("classification job received", "job_id", job.ID, "source_message_id", sourceMessageID, "status", job.Status)
+		c.processJob(ctx, job)
+	}
+}
 
-		if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusRunning); err != nil {
+func (c *Classifier) processJob(ctx context.Context, job domain.Job) {
+	sourceMessageID := int64(0)
+	if job.SourceMessage != nil {
+		sourceMessageID = job.SourceMessage.ID
+	}
+
+	slog.Info("classification job received", "job_id", job.ID, "source_message_id", sourceMessageID, "status", job.Status)
+
+	c.mu.Lock()
+	if _, ok := c.activeJobs[job.ID]; ok {
+		c.mu.Unlock()
+		return
+	}
+	claimed, err := c.jr.ClaimJob(ctx, job.ID)
+	if err == nil && claimed {
+		c.activeJobs[job.ID] = struct{}{}
+	}
+	c.mu.Unlock()
+	if err != nil {
+		slog.Error("failed to set job status", "id", job.ID, "error", err)
+		return
+	}
+	if !claimed {
+		return
+	}
+	defer func() {
+		c.mu.Lock()
+		delete(c.activeJobs, job.ID)
+		c.mu.Unlock()
+	}()
+
+	slog.Info("classification job started", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusRunning)
+
+	knowledgeItems, err := c.ProcessClassification(ctx, job)
+	if err != nil {
+		slog.Error("failed to classify job", "id", job.ID, "error", err)
+		return
+	}
+
+	err = c.tx.WithTx(ctx, func(ctx context.Context) error {
+		if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusFailed); err != nil {
 			slog.Error("failed to set job status", "id", job.ID, "error", err)
-		} else {
-			slog.Info("classification job started", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusRunning)
+			return err
 		}
 
-		if err := c.ProcessClassification(ctx, job); err != nil {
-			slog.Error("failed to process job", "id", job.ID, "error", err)
-			if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusFailed); err != nil {
-				slog.Error("failed to set job status", "id", job.ID, "error", err)
-			} else {
-				slog.Info("classification job failed", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusFailed)
+		for _, item := range knowledgeItems {
+			if _, err := c.jr.SaveKnowledgeItem(ctx, item); err != nil {
+				return fmt.Errorf("save knowledge item: %w", err)
 			}
-			continue
 		}
 
 		if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusDone); err != nil {
 			slog.Error("failed to set job status", "id", job.ID, "error", err)
-			continue
+			return err
 		}
+		return nil
+	})
+
+	if err != nil {
+		slog.Error("failed to process job", "id", job.ID, "error", err)
+	} else {
 		slog.Info("classification job finished", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusDone)
 	}
 }
@@ -124,14 +192,14 @@ type ShortTopic struct {
 	Description string `json:"description"`
 }
 
-func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) error {
+func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) ([]*domain.KnowledgeItem, error) {
 	sourceMessageID := job.SourceMessage.ID
 
 	slog.Debug("classification started", "job_id", job.ID, "source_message_id", sourceMessageID)
 
 	topics, err := c.jr.GetAllTopics(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get topics: %w", err)
+		return nil, fmt.Errorf("failed to get topics: %w", err)
 	}
 	slog.Debug("classification topics loaded", "job_id", job.ID, "source_message_id", sourceMessageID, "topics_count", len(topics))
 
@@ -145,12 +213,12 @@ func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) 
 
 	data, err := json.MarshalIndent(shortTopicSlice, "", "\t")
 	if err != nil {
-		return fmt.Errorf("failed to marshal topics: %w", err)
+		return nil, fmt.Errorf("failed to marshal topics: %w", err)
 	}
 
 	prompt, err := BuildClassifyPrompt(data, job.SourceMessage.RawText)
 	if err != nil {
-		return fmt.Errorf("failed to build classify prompt: %w", err)
+		return nil, fmt.Errorf("failed to build classify prompt: %w", err)
 	}
 	slog.Debug("classification request sent to model", "job_id", job.ID, "source_message_id", sourceMessageID, "prompt_bytes", len(prompt))
 
@@ -160,18 +228,18 @@ func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) 
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed to generate JSON: %w", err)
+		return nil, fmt.Errorf("failed to generate JSON: %w", err)
 	}
 	slog.Debug("classification response received", "job_id", job.ID, "source_message_id", sourceMessageID, "response_bytes", len(ans))
 
 	var res domain.ClassificationResult
 	if err := json.Unmarshal(ans, &res); err != nil {
 		slog.Error("failed to unmarshal classification result", "job_id", job.ID, "source_message_id", sourceMessageID, "error", err, "response", string(ans))
-		return fmt.Errorf("unmarshal classification result: %w", err)
+		return nil, fmt.Errorf("unmarshal classification result: %w", err)
 	}
 
 	if res.Result == nil {
-		return fmt.Errorf("classification result must contain a Result array")
+		return nil, fmt.Errorf("classification result must contain a Result array")
 	}
 
 	res.SourceMessageID = sourceMessageID
@@ -185,17 +253,17 @@ func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) 
 	items := make([]*domain.KnowledgeItem, 0, len(res.Result))
 	for i, part := range res.Result {
 		if strings.TrimSpace(part.Title) == "" || strings.TrimSpace(part.Body) == "" {
-			return fmt.Errorf("classification part %d must contain title and body", i)
+			return nil, fmt.Errorf("classification part %d must contain title and body", i)
 		}
 		if part.TopicSlugs == nil {
-			return fmt.Errorf("classification part %d must contain a TopicSlugs array", i)
+			return nil, fmt.Errorf("classification part %d must contain a TopicSlugs array", i)
 		}
 		if len(part.TopicSlugs) == 0 {
 			if part.Confidence != nil {
-				return fmt.Errorf("classification part %d without topics must have null confidence", i)
+				return nil, fmt.Errorf("classification part %d without topics must have null confidence", i)
 			}
 		} else if part.Confidence == nil || *part.Confidence < 0 || *part.Confidence > 1 {
-			return fmt.Errorf("classification part %d with topics must have confidence between 0 and 1", i)
+			return nil, fmt.Errorf("classification part %d with topics must have confidence between 0 and 1", i)
 		}
 
 		itemTopics := make([]*domain.Topic, 0, len(part.TopicSlugs))
@@ -203,7 +271,7 @@ func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) 
 		for _, slug := range part.TopicSlugs {
 			topic, ok := topicBySlug[slug]
 			if !ok {
-				return fmt.Errorf("classification returned unknown topic slug %q", slug)
+				return nil, fmt.Errorf("classification returned unknown topic slug %q", slug)
 			}
 			if seen[slug] {
 				continue
@@ -224,14 +292,7 @@ func (c *Classifier) ProcessClassification(ctx context.Context, job domain.Job) 
 			},
 		})
 	}
-
-	for _, item := range items {
-		if _, err := c.jr.SaveKnowledgeItem(ctx, item); err != nil {
-			return fmt.Errorf("save knowledge item: %w", err)
-		}
-	}
-
-	return nil
+	return items, nil
 }
 
 func BuildClassifyPrompt(topicsJSON []byte, inputText string) (string, error) {

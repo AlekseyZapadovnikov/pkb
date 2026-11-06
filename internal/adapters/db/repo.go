@@ -185,8 +185,8 @@ func (r *Repository) saveKnowledgeItem(ctx context.Context, item *domain.Knowled
 		content += "\n\nТопики: " + strings.Join(topicNames, ", ")
 	}
 
-	if _, err := store.ExecContext(ctx, ` 
-        SELECT memory_add_content(?, ?, ?) 
+	if _, err := store.ExecContext(ctx, `
+        SELECT memory_add_content(?, ?, ?)
   `, path, content, "knowledge"); err != nil {
 		return 0, fmt.Errorf("index knowledge item: %w", err)
 	}
@@ -443,12 +443,10 @@ func (r *Repository) SaveJob(ctx context.Context, job *domain.Job) error {
 	return nil
 }
 
-func (r *Repository) GetPendingClassificationJob(ctx context.Context) (*domain.Job, error) {
+func (r *Repository) GetClassificationJobsByStatus(ctx context.Context, status domain.JobStatus) ([]*domain.Job, error) {
 	store := r.store(ctx)
 
-	var row jobRow
-
-	err := store.GetContext(ctx, &row, `
+	query := `
 		SELECT
 			j.id AS job_id,
 			j.job_type,
@@ -467,16 +465,42 @@ func (r *Repository) GetPendingClassificationJob(ctx context.Context) (*domain.J
 		JOIN source_messages m ON m.id = j.source_message_id
 		WHERE j.job_type = ? AND j.status = ?
 		ORDER BY j.created_at, j.id
-		LIMIT 1
-	`, domain.JobTypeClassifyMessage, domain.JobStatusPending)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("select pending classification job: %w", err)
+	`
+
+	var rows []jobRow
+
+	if err := store.SelectContext(ctx, &rows, query, domain.JobTypeClassifyMessage, status); err != nil {
+		return nil, fmt.Errorf("select classification job by status: %w", err)
 	}
 
-	return row.toDomain(), nil
+	items := make([]*domain.Job, len(rows))
+	for i, row := range rows {
+		items[i] = row.toDomain()
+	}
+
+	return items, nil
+}
+
+func (r *Repository) ResetRunningJobs(ctx context.Context, activeIDs []int64) error {
+	query := `
+		UPDATE processing_jobs
+		SET status = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE status = ? AND job_type = ?
+	`
+	args := []any{domain.JobStatusPending, domain.JobStatusRunning, domain.JobTypeClassifyMessage}
+	if len(activeIDs) > 0 {
+		query += " AND id NOT IN (?)"
+		args = append(args, activeIDs)
+		var err error
+		query, args, err = sqlx.In(query, args...)
+		if err != nil {
+			return fmt.Errorf("build reset running jobs query: %w", err)
+		}
+	}
+	if _, err := r.store(ctx).ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("reset running jobs: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) GetJobByID(ctx context.Context, jobID int64) (*domain.Job, error) {
@@ -537,6 +561,24 @@ func (r *Repository) SetJobStatus(ctx context.Context, jobID int64, status domai
 	}
 
 	return nil
+}
+
+func (r *Repository) ClaimJob(ctx context.Context, jobID int64) (bool, error) {
+	result, err := r.store(ctx).ExecContext(ctx, `
+                UPDATE processing_jobs
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = ?
+        `, domain.JobStatusRunning, jobID, domain.JobStatusPending)
+
+	if err != nil {
+		return false, fmt.Errorf("claim job: %w", err)
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read claimed jobs count: %w", err)
+	}
+	return count == 1, nil
 }
 
 func (r *Repository) GetKnowledge(ctx context.Context, id int) (domain.KnowledgeItem, error) {

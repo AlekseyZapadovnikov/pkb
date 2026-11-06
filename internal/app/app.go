@@ -76,7 +76,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	transactor := storage.NewTransactor(database)
 
 	var modelClient service.ModelClient = codexadapter.NewClient(cfg.ClassifierProvider)
-	classifier := service.NewClassifier(repository, modelClient)
+	classifier := service.NewClassifier(repository, transactor, modelClient)
 	messages := service.NewMessanger(logger, repository, transactor, classifier)
 	topics := service.NewEntityManager(repository)
 
@@ -115,6 +115,12 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	errCh := make(chan error, 1)
+
+	go func() {
+		if err := a.classifier.RecoverPendingJobs(ctx); err != nil {
+			errCh <- err
+		}
+	}()
 
 	go a.classifier.ProcessJobWorker(ctx)
 
