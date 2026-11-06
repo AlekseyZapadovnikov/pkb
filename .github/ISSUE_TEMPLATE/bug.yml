@@ -1,0 +1,16 @@
+name: Ошибка
+description: Что-то работает неправильно
+labels: [bug]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Контекст
+      description: Как воспроизвести ошибку, какой результат ожидался и что произошло на самом деле
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Задача
+      description: Что нужно исправить и как должно работать после исправления

@@ -1,0 +1,16 @@
+name: Документация
+description: Изменения в документации
+labels: [documentation]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Контекст
+      description: В каком документе есть ошибка или чего не хватает
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Задача
+      description: Что нужно добавить или исправить в документации

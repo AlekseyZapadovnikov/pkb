@@ -1,0 +1,16 @@
+name: Новая функциональность
+description: Добавление или улучшение функциональности
+labels: [enhancement]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Контекст
+      description: Какую проблему нужно решить и почему это необходимо
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Задача
+      description: Что нужно добавить или изменить
