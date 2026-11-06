@@ -566,7 +566,7 @@ func (r *Repository) SetJobStatus(ctx context.Context, jobID int64, status domai
 func (r *Repository) ClaimJob(ctx context.Context, jobID int64) (bool, error) {
 	result, err := r.store(ctx).ExecContext(ctx, `
                 UPDATE processing_jobs
-                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                SET status = ?, attempts = attempts + 1, error = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND status = ?
         `, domain.JobStatusRunning, jobID, domain.JobStatusPending)
 
@@ -579,6 +579,41 @@ func (r *Repository) ClaimJob(ctx context.Context, jobID int64) (bool, error) {
 		return false, fmt.Errorf("read claimed jobs count: %w", err)
 	}
 	return count == 1, nil
+}
+
+func (r *Repository) ResetFailedJob(ctx context.Context, jobID int64) (bool, error) {
+	result, err := r.store(ctx).ExecContext(ctx, `
+		UPDATE processing_jobs
+		SET status = ?, error = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = ? AND job_type = ?
+	`, domain.JobStatusPending, jobID, domain.JobStatusFailed, domain.JobTypeClassifyMessage)
+	if err != nil {
+		return false, fmt.Errorf("reset failed job: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read reset jobs count: %w", err)
+	}
+	return count == 1, nil
+}
+
+func (r *Repository) FailJob(ctx context.Context, jobID int64, message string) error {
+	result, err := r.store(ctx).ExecContext(ctx, `
+		UPDATE processing_jobs
+		SET status = ?, error = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = ?
+	`, domain.JobStatusFailed, message, jobID, domain.JobStatusRunning)
+	if err != nil {
+		return fmt.Errorf("fail job: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read failed jobs count: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("fail job: job %d is not running or does not exist", jobID)
+	}
+	return nil
 }
 
 func (r *Repository) GetKnowledge(ctx context.Context, id int) (domain.KnowledgeItem, error) {

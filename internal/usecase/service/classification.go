@@ -23,6 +23,9 @@ type JobTopicRepository interface {
 	GetClassificationJobsByStatus(ctx context.Context, status domain.JobStatus) ([]*domain.Job, error)
 	ResetRunningJobs(ctx context.Context, activeIDs []int64) error
 	ClaimJob(ctx context.Context, jobID int64) (bool, error)
+	ResetFailedJob(ctx context.Context, jobID int64) (bool, error)
+	GetJobByID(ctx context.Context, jobID int64) (*domain.Job, error)
+	FailJob(ctx context.Context, jobID int64, message string) error
 }
 
 type ModelClient interface {
@@ -97,6 +100,35 @@ func (c *Classifier) RecoverPendingJobs(ctx context.Context) error {
 	return nil
 }
 
+// RetryFailedJob retries a failed job by resetting its status to pending and adding it back to the job queue.
+func (c *Classifier) RetryFailedJob(ctx context.Context, id int64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, active := c.activeJobs[id]; active {
+		return nil
+	}
+	var job *domain.Job
+	err := c.tx.WithTx(ctx, func(ctx context.Context) error {
+		reset, err := c.jr.ResetFailedJob(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !reset {
+			return nil
+		}
+		job, err = c.jr.GetJobByID(ctx, id)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("retry failed job: %w", err)
+	}
+	if job != nil {
+		c.jobQ.Add(*job)
+	}
+	return nil
+}
+
 func (c *Classifier) ProcessJobWorker(ctx context.Context) {
 	for {
 		select {
@@ -149,8 +181,13 @@ func (c *Classifier) processJob(ctx context.Context, job domain.Job) {
 	}
 	defer func() {
 		c.mu.Lock()
-		delete(c.activeJobs, job.ID)
-		c.mu.Unlock()
+		defer c.mu.Unlock()
+		defer delete(c.activeJobs, job.ID)
+		if err != nil && ctx.Err() == nil {
+			if saveErr := c.jr.FailJob(ctx, job.ID, err.Error()); saveErr != nil {
+				slog.Error("failed to save job error", "job_id", job.ID, "error", saveErr)
+			}
+		}
 	}()
 
 	slog.Info("classification job started", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusRunning)
@@ -162,11 +199,6 @@ func (c *Classifier) processJob(ctx context.Context, job domain.Job) {
 	}
 
 	err = c.tx.WithTx(ctx, func(ctx context.Context) error {
-		if err := c.jr.SetJobStatus(ctx, job.ID, domain.JobStatusFailed); err != nil {
-			slog.Error("failed to set job status", "id", job.ID, "error", err)
-			return err
-		}
-
 		for _, item := range knowledgeItems {
 			if _, err := c.jr.SaveKnowledgeItem(ctx, item); err != nil {
 				return fmt.Errorf("save knowledge item: %w", err)
@@ -185,6 +217,7 @@ func (c *Classifier) processJob(ctx context.Context, job domain.Job) {
 	} else {
 		slog.Info("classification job finished", "job_id", job.ID, "source_message_id", sourceMessageID, "status", domain.JobStatusDone)
 	}
+
 }
 
 type ShortTopic struct {
