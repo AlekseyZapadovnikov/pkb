@@ -77,7 +77,8 @@ func (c *Classifier) CreateJob(ctx context.Context, msg *domain.SourceMessage) (
 	return job, nil
 }
 
-// RecoverPendingJobs resets interrupted jobs and queues pending classification jobs.
+// RecoverPendingJobs resets inactive running jobs and queues pending classification jobs.
+// Recovery is coordinated with workers sharing this Classifier; failed jobs are untouched.
 func (c *Classifier) RecoverPendingJobs(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -100,7 +101,8 @@ func (c *Classifier) RecoverPendingJobs(ctx context.Context) error {
 	return nil
 }
 
-// RetryFailedJob retries a failed job by resetting its status to pending and adding it back to the job queue.
+// RetryFailedJob resets a failed classification job and queues it after commit.
+// Active, missing and non-failed jobs are ignored.
 func (c *Classifier) RetryFailedJob(ctx context.Context, id int64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -154,6 +156,8 @@ func (c *Classifier) ProcessJobWorker(ctx context.Context) {
 	}
 }
 
+// processJob claims a job and saves its results and done status atomically.
+// Errors are saved as failed; context cancellation leaves the job running for recovery.
 func (c *Classifier) processJob(ctx context.Context, job domain.Job) {
 	sourceMessageID := int64(0)
 	if job.SourceMessage != nil {

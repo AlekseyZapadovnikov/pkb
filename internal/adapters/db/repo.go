@@ -481,6 +481,7 @@ func (r *Repository) GetClassificationJobsByStatus(ctx context.Context, status d
 	return items, nil
 }
 
+// ResetRunningJobs returns running classification jobs to pending, excluding activeIDs.
 func (r *Repository) ResetRunningJobs(ctx context.Context, activeIDs []int64) error {
 	query := `
 		UPDATE processing_jobs
@@ -563,6 +564,8 @@ func (r *Repository) SetJobStatus(ctx context.Context, jobID int64, status domai
 	return nil
 }
 
+// ClaimJob atomically changes pending to running, increments attempts and clears the error.
+// It returns false if the job is missing or no longer pending.
 func (r *Repository) ClaimJob(ctx context.Context, jobID int64) (bool, error) {
 	result, err := r.store(ctx).ExecContext(ctx, `
                 UPDATE processing_jobs
@@ -581,6 +584,8 @@ func (r *Repository) ClaimJob(ctx context.Context, jobID int64) (bool, error) {
 	return count == 1, nil
 }
 
+// ResetFailedJob changes a failed classification job to pending and clears its error.
+// It returns whether a job was reset; it does not enqueue the job.
 func (r *Repository) ResetFailedJob(ctx context.Context, jobID int64) (bool, error) {
 	result, err := r.store(ctx).ExecContext(ctx, `
 		UPDATE processing_jobs
@@ -597,6 +602,8 @@ func (r *Repository) ResetFailedJob(ctx context.Context, jobID int64) (bool, err
 	return count == 1, nil
 }
 
+// FailJob saves the error and changes running to failed.
+// It returns an error if the job is missing or no longer running.
 func (r *Repository) FailJob(ctx context.Context, jobID int64, message string) error {
 	result, err := r.store(ctx).ExecContext(ctx, `
 		UPDATE processing_jobs
